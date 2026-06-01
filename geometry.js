@@ -76,35 +76,33 @@ const Geometry = (() => {
     });
   }
 
-  // Pentagon (Cairo-style) tiling: pinwheels of 4 "house" pentagons on the
-  // rotated lattice (4,2),(-2,4). Each pinwheel maps to a 2×2 logical block, so
-  // the board is a full rows×cols rectangle (both rounded up to even). It is a
-  // proper edge-to-edge tiling; adjacency is derived from shared edges.
+  // True Cairo pentagonal tiling. The pentagon has angles 120,120,90,120,90
+  // and sides [√3−1,1,1,1,1]; it tiles edge-to-edge in a 4-orientation
+  // basketweave. UNIT below is one translational unit cell (4 pentagons, one
+  // per orientation), already rotated 45° so the lattice is axis-aligned with
+  // period √6. Each unit cell maps to a 2×2 logical block, so the board is a
+  // full rows×cols rectangle (both rounded up to even). Adjacency is derived
+  // from shared edges. (Coordinates precomputed/verified offline.)
+  const PENT_UNIT = [
+    [[-0.69695318,-0.17931509],[-0.17931509,-0.69695318],[0.78661073,-0.43813414],[0.52779169,0.52779169],[-0.43813414,0.78661073]],
+    [[0.52779169,-1.92169806],[1.04542978,-1.40405997],[0.78661073,-0.43813414],[-0.17931509,-0.69695318],[-0.43813414,-1.66287901]],
+    [[1.04542978,-1.40405997],[0.52779169,-1.92169806],[0.78661073,-2.88762388],[1.75253656,-2.62880484],[2.0113556,-1.66287901]],
+    [[2.27017465,-0.69695318],[1.75253656,-0.17931509],[0.78661073,-0.43813414],[1.04542978,-1.40405997],[2.0113556,-1.66287901]],
+  ];
+  const PENT_L = Math.sqrt(6); // axis-aligned lattice period (in unit coords)
+
   function buildPentagon(reqRows, reqCols) {
-    const A = 1, HR = 1, HB = 2, SCALE = 14;
-    const BASE = [
-      { x: 0, y: 0 }, { x: A, y: HR }, { x: A, y: HR + HB },
-      { x: -A, y: HR + HB }, { x: -A, y: HR },
-    ];
-    const rot = (p, k) => {
-      let { x, y } = p;
-      for (let i = 0; i < ((k % 4) + 4) % 4; i++) { const nx = -y, ny = x; x = nx; y = ny; }
-      return { x, y };
-    };
-    const V1 = { x: 4, y: 2 }, V2 = { x: -2, y: 4 };
-    const KMAP = [[0, 0], [0, 1], [1, 0], [1, 1]]; // house index -> (dr,dc) in its 2×2 block
+    const SCALE = 26;
+    const KMAP = [[0, 0], [0, 1], [1, 0], [1, 1]]; // unit-cell pentagon -> (dr,dc)
 
     const P = Math.ceil(reqRows / 2), Q = Math.ceil(reqCols / 2);
     const rows = 2 * P, cols = 2 * Q;
     const raw = [];
     for (let pr = 0; pr < P; pr++)
       for (let pc = 0; pc < Q; pc++) {
-        const ox = pr * V1.x + pc * V2.x, oy = pr * V1.y + pc * V2.y;
+        const ox = pc * PENT_L, oy = pr * PENT_L;
         for (let k = 0; k < 4; k++) {
-          const corners = BASE.map((p) => {
-            const q = rot(p, k);
-            return { x: (q.x + ox) * SCALE, y: (q.y + oy) * SCALE };
-          });
+          const corners = PENT_UNIT[k].map(([x, y]) => ({ x: (x + ox) * SCALE, y: (y + oy) * SCALE }));
           const [dr, dc] = KMAP[k];
           raw.push({ r: 2 * pr + dr, c: 2 * pc + dc, corners });
         }
