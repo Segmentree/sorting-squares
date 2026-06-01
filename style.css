@@ -241,6 +241,14 @@ button:active { transform: translateY(1px); }
   stroke-linecap: round;
 }
 
+/* Invisible cell — only shown in the editor (hatched dark); hidden in play. */
+.board-svg .cell.hole {
+  fill: var(--wall);
+  stroke: #000;
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
 /* Hover hints while a box is selected */
 .board.selecting .board-svg .cell { cursor: pointer; }
 .board.selecting .board-svg .cell:hover {

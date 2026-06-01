@@ -64,8 +64,13 @@ const Levels = (() => {
     if (!isInt(cols, SIZE_MIN, SIZE_MAX)) return err(`cols must be ${SIZE_MIN}-${SIZE_MAX}.`);
     if (!Array.isArray(level.slots)) return err("slots must be an array.");
     if (!Array.isArray(level.boxes)) return err("boxes must be an array.");
+    if (level.holes != null && !Array.isArray(level.holes)) return err("holes must be an array.");
 
     const seen = new Set();
+    for (const h of level.holes || []) {
+      if (!isInt(h.r, 0, rows - 1) || !isInt(h.c, 0, cols - 1)) return err("A hole is out of bounds.");
+      seen.add(h.r + "," + h.c); // holes may not share a cell with a piece
+    }
     for (const s of level.slots) {
       if (!isInt(s.r, 0, rows - 1) || !isInt(s.c, 0, cols - 1)) return err("A slot is out of bounds.");
       if (slotWall(s, shape) == null) return err("A slot has an invalid wall.");
@@ -95,6 +100,7 @@ const Levels = (() => {
         ? obj.slots.map((s) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
         : [],
       boxes: Array.isArray(obj.boxes) ? obj.boxes.map((b) => ({ r: b.r, c: b.c })) : [],
+      holes: Array.isArray(obj.holes) ? obj.holes.map((h) => ({ r: h.r, c: h.c })) : [],
       updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
     };
     return validate(level).ok ? level : null;

@@ -29,6 +29,7 @@ let slots = [];          // { r, c, wall, filled, reserved, el }
 let boxes = [];          // { id, r, c, state, target, el }
 let selectedBox = null;
 let wallEdges = new Set(); // impassable edges between a slot and the cell behind its wall
+let holes = new Set();     // invisible cells: not drawn, impassable (permanent obstacles)
 
 function key(r, c) { return r + "," + c; }
 function cellExists(r, c) { return tiling.has(key(r, c)); }
@@ -52,6 +53,7 @@ function buildBoard() {
   svg.classList.add("board-svg");
 
   for (const cell of tiling.cellList) {
+    if (holes.has(cell.key)) continue; // invisible cell — not drawn
     const poly = document.createElementNS(SVG_NS, "polygon");
     poly.setAttribute("points", cell.corners.map((p) => `${p.x},${p.y}`).join(" "));
     poly.setAttribute("class", "cell" + ((cell.r + cell.c) % 2 ? " alt" : ""));
@@ -108,6 +110,12 @@ function buildSpec(spec) {
   ROWS = tiling.rows; // pentagon rounds up to even
   COLS = tiling.cols;
 
+  // Invisible cells — not drawn, and permanent obstacles for pathfinding.
+  holes = new Set();
+  for (const h of spec.holes || []) {
+    if (cellExists(h.r, h.c)) holes.add(key(h.r, h.c));
+  }
+
   buildBoard();
   slots = [];
   boxes = [];
@@ -116,10 +124,10 @@ function buildSpec(spec) {
   winEl.classList.add("hidden");
 
   for (const s of spec.slots) {
-    if (cellExists(s.r, s.c)) addSlot(s.r, s.c, clampWall(s.wall));
+    if (cellExists(s.r, s.c) && !holes.has(key(s.r, s.c))) addSlot(s.r, s.c, clampWall(s.wall));
   }
   for (const b of spec.boxes) {
-    if (cellExists(b.r, b.c)) addBox(b.r, b.c);
+    if (cellExists(b.r, b.c) && !holes.has(key(b.r, b.c))) addBox(b.r, b.c);
   }
 
   totalEl.textContent = boxes.length;
@@ -191,6 +199,7 @@ function loadLevel(level) {
     cols: level.cols,
     slots: level.slots.map((s) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) })),
     boxes: level.boxes.map((b) => ({ r: b.r, c: b.c })),
+    holes: (level.holes || []).map((h) => ({ r: h.r, c: h.c })),
   });
 }
 
@@ -246,10 +255,10 @@ function boxTransform(r, c) {
 
 /* ---------- Occupancy / obstacles ---------- */
 
-// Cells blocked for pathfinding: any box that is NOT moving and NOT the one
-// we are routing. Moving boxes are ignored (they pass through).
+// Cells blocked for pathfinding: invisible cells (always), plus any box that is
+// NOT moving and NOT the one we are routing. Moving boxes pass through.
 function blockedSet(movingBox) {
-  const blocked = new Set();
+  const blocked = new Set(holes);
   for (const b of boxes) {
     if (b === movingBox) continue;
     if (b.state === "moving") continue;

@@ -76,7 +76,10 @@ function renderCell(r, c) {
   if (cell._wallLine) { cell._wallLine.remove(); cell._wallLine = null; }
   if (cell._boxEl) { cell._boxEl.remove(); cell._boxEl = null; }
 
-  if (v === "box") {
+  if (v === "hole") {
+    // Invisible in-game; shown hatched in the editor so it can be placed/seen.
+    poly.classList.add("hole");
+  } else if (v === "box") {
     const b = document.createElement("div");
     b.className = "ed-box";
     const s = tiling.boxSize, h = s / 2;
@@ -102,6 +105,8 @@ function onCellClick(r, c) {
   const v = model[r][c];
   if (tool === "erase") {
     model[r][c] = null;
+  } else if (tool === "hole") {
+    model[r][c] = v === "hole" ? null : "hole";
   } else if (tool === "box") {
     model[r][c] = v === "box" ? null : "box";
   } else if (tool === "slot") {
@@ -149,14 +154,15 @@ function applySize() {
 /* ---------- Level <-> model ---------- */
 
 function collectLevel() {
-  const slots = [], boxes = [];
+  const slots = [], boxes = [], holes = [];
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {
       const v = model[r][c];
       if (v === "box") boxes.push({ r, c });
+      else if (v === "hole") holes.push({ r, c });
       else if (isSlot(v)) slots.push({ r, c, wall: v });
     }
-  return { id: currentId, name: nameInput.value.trim() || "Untitled", shape, rows, cols, slots, boxes };
+  return { id: currentId, name: nameInput.value.trim() || "Untitled", shape, rows, cols, slots, boxes, holes };
 }
 
 function loadIntoEditor(level) {
@@ -168,6 +174,7 @@ function loadIntoEditor(level) {
     model[s.r][s.c] = ((w % Levels.SIDES[shape]) + Levels.SIDES[shape]) % Levels.SIDES[shape];
   }
   for (const b of level.boxes) model[b.r][b.c] = "box";
+  for (const hgt of (level.holes || [])) model[hgt.r][hgt.c] = "hole";
   currentId = level.id;
   nameInput.value = level.name || "";
   rowsInput.value = rows; colsInput.value = cols; shapeInput.value = shape;
