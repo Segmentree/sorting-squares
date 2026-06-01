@@ -5,8 +5,9 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Node (none currently, but in case tooling is added)
+# Dependencies
 node_modules/
 
-# Build output (regenerate with `node build.js`)
+# Build output (regenerate with `npm run build`)
+js/
 dist/

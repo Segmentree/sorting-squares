@@ -1,0 +1,25 @@
+{
+  "name": "sortingsquares",
+  "version": "1.0.0",
+  "description": "A small browser puzzle game: move every **green box** onto a **yellow slot**. Each slot has a dark wall on one edge — boxes can only enter from an open side, and they find a path around static boxes (boxes that are mid-move pass through each other). The game is won when every box sits on a slot.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && node build.js",
+    "watch": "tsc --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Segmentree/sorting-squares.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Segmentree/sorting-squares/issues"
+  },
+  "homepage": "https://github.com/Segmentree/sorting-squares#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}

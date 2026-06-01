@@ -1,40 +1,51 @@
 /* Shared level format + storage, used by both the play page and the editor.
  * Exposed as a global `Levels` (no ES modules, so it works from file://).
  *
- * Level shape:
- *   { id, name, shape, rows, cols,
- *     slots: [{ r, c, wall }],   // shape: "square" | "hexagon"; wall = edge index
- *     boxes: [{ r, c }],
- *     updatedAt }
- *
  * Legacy levels stored a square "facing" (up/down/left/right) instead of a
  * wall edge index; those are still accepted and migrated by the game loader.
  */
+
+interface Pos { r: number; c: number; }
+interface SlotDef { r: number; c: number; wall?: number | null; facing?: string; }
+interface Level {
+  id: string | null;
+  name: string;
+  shape: string;
+  rows: number;
+  cols: number;
+  slots: SlotDef[];
+  boxes: Pos[];
+  holes: Pos[];
+  updatedAt: number;
+}
+type ValidateResult = { ok: true } | { ok: false; error: string };
+interface ImportResult { added: number; skipped: number; error?: string; }
+
 const Levels = (() => {
   const KEY = "sortingSquares.levels";
   const SHAPES = ["square", "pentagon", "hexagon"];
-  const SIDES = { square: 4, pentagon: 5, hexagon: 6 };
+  const SIDES: Record<string, number> = { square: 4, pentagon: 5, hexagon: 6 };
   const FACINGS = ["up", "down", "left", "right"];
   const SIZE_MIN = 2, SIZE_MAX = 16;
 
-  function loadAll() {
+  function loadAll(): Level[] {
     try {
-      const v = JSON.parse(localStorage.getItem(KEY));
+      const v = JSON.parse(localStorage.getItem(KEY) || "[]");
       return Array.isArray(v) ? v : [];
     } catch (e) { return []; }
   }
-  function persist(list) {
+  function persist(list: Level[]): void {
     try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
   }
 
-  function uid() {
+  function uid(): string {
     return "lvl_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
   }
 
-  function list() { return loadAll(); }
-  function get(id) { return loadAll().find((l) => l.id === id) || null; }
+  function list(): Level[] { return loadAll(); }
+  function get(id: string): Level | null { return loadAll().find((l) => l.id === id) || null; }
 
-  function save(level) {
+  function save(level: Level): string {
     const all = loadAll();
     if (!level.id) level.id = uid();
     level.updatedAt = Date.now();
@@ -44,18 +55,18 @@ const Levels = (() => {
     return level.id;
   }
 
-  function remove(id) { persist(loadAll().filter((l) => l.id !== id)); }
+  function remove(id: string): void { persist(loadAll().filter((l) => l.id !== id)); }
 
   // The wall edge index for a slot, migrating legacy square facings if needed.
-  const FACING_TO_WALL = { up: 2, down: 0, left: 1, right: 3 };
-  function slotWall(s, shape) {
-    if (isInt(s.wall, 0, SIDES[shape] - 1)) return s.wall;
-    if (shape === "square" && FACINGS.includes(s.facing)) return FACING_TO_WALL[s.facing];
+  const FACING_TO_WALL: Record<string, number> = { up: 2, down: 0, left: 1, right: 3 };
+  function slotWall(s: SlotDef, shape: string): number | null {
+    if (isInt(s.wall, 0, SIDES[shape] - 1)) return s.wall as number;
+    if (shape === "square" && s.facing && FACINGS.includes(s.facing)) return FACING_TO_WALL[s.facing];
     return null;
   }
 
   // Returns { ok: true } or { ok: false, error: "..." }.
-  function validate(level) {
+  function validate(level: any): ValidateResult {
     if (!level || typeof level !== "object") return err("Not a level object.");
     const shape = level.shape || "square";
     if (!SHAPES.includes(shape)) return err("Unknown cell shape.");
@@ -66,7 +77,7 @@ const Levels = (() => {
     if (!Array.isArray(level.boxes)) return err("boxes must be an array.");
     if (level.holes != null && !Array.isArray(level.holes)) return err("holes must be an array.");
 
-    const seen = new Set();
+    const seen = new Set<string>();
     for (const h of level.holes || []) {
       if (!isInt(h.r, 0, rows - 1) || !isInt(h.c, 0, cols - 1)) return err("A hole is out of bounds.");
       seen.add(h.r + "," + h.c); // holes may not share a cell with a piece
@@ -88,19 +99,19 @@ const Levels = (() => {
   }
 
   // Coerce an arbitrary parsed object into a clean level (or null if invalid).
-  function normalize(obj) {
+  function normalize(obj: any): Level | null {
     if (!obj || typeof obj !== "object") return null;
     const shape = SHAPES.includes(obj.shape) ? obj.shape : "square";
-    const level = {
+    const level: Level = {
       id: typeof obj.id === "string" ? obj.id : null,
       name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Untitled",
       shape,
       rows: obj.rows, cols: obj.cols,
       slots: Array.isArray(obj.slots)
-        ? obj.slots.map((s) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
+        ? obj.slots.map((s: SlotDef) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
         : [],
-      boxes: Array.isArray(obj.boxes) ? obj.boxes.map((b) => ({ r: b.r, c: b.c })) : [],
-      holes: Array.isArray(obj.holes) ? obj.holes.map((h) => ({ r: h.r, c: h.c })) : [],
+      boxes: Array.isArray(obj.boxes) ? obj.boxes.map((b: Pos) => ({ r: b.r, c: b.c })) : [],
+      holes: Array.isArray(obj.holes) ? obj.holes.map((h: Pos) => ({ r: h.r, c: h.c })) : [],
       updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
     };
     return validate(level).ok ? level : null;
@@ -108,8 +119,8 @@ const Levels = (() => {
 
   // Import one level or an array of levels from JSON text. Always assigns
   // fresh ids so imports never clobber existing levels. Returns a summary.
-  function importJSON(text) {
-    let parsed;
+  function importJSON(text: string): ImportResult {
+    let parsed: any;
     try { parsed = JSON.parse(text); } catch (e) { return { added: 0, skipped: 0, error: "Invalid JSON." }; }
     const items = Array.isArray(parsed) ? parsed : [parsed];
     const all = loadAll();
@@ -126,7 +137,7 @@ const Levels = (() => {
     return { added, skipped };
   }
 
-  function download(text, filename) {
+  function download(text: string, filename: string): void {
     const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -138,18 +149,18 @@ const Levels = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportLevel(level) {
+  function exportLevel(level: Level): void {
     download(JSON.stringify(level, null, 2), safeName(level.name) + ".json");
   }
-  function exportAll() {
+  function exportAll(): void {
     download(JSON.stringify(loadAll(), null, 2), "sorting-squares-levels.json");
   }
 
-  function safeName(name) {
+  function safeName(name: string): string {
     return (name || "level").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "level";
   }
-  function isInt(v, lo, hi) { return Number.isInteger(v) && v >= lo && v <= hi; }
-  function err(msg) { return { ok: false, error: msg }; }
+  function isInt(v: any, lo: number, hi: number): boolean { return Number.isInteger(v) && v >= lo && v <= hi; }
+  function err(msg: string): ValidateResult { return { ok: false, error: msg }; }
 
   return {
     KEY, SHAPES, SIDES, FACINGS, SIZE_MIN, SIZE_MAX,

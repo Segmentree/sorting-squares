@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2018",
+    "lib": ["ES2018", "DOM", "DOM.Iterable"],
+    "module": "none",
+    "rootDir": "src",
+    "outDir": "js",
+    "strict": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": false,
+    "removeComments": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

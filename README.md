@@ -20,26 +20,35 @@ Pure HTML/CSS/JS — no dependencies, no backend.
 
 ## Run it
 
-Just open `index.html` in any modern browser — no server required.
-
-Or build a single self-contained file (both the game and the editor bundled
-into one HTML via an `<iframe srcdoc>` router):
+The source is **TypeScript** (in `src/`), compiled to plain JS — no runtime
+dependencies. Install once, then build:
 
 ```sh
-node build.js
-# -> dist/sorting-squares-<timestamp>.html  (open directly in any browser)
+npm install
+npm run build      # tsc -> js/, then bundles a single self-contained HTML file
 ```
+
+- `npm run build` compiles `src/*.ts` to `js/*.js` and produces
+  `dist/sorting-squares-<timestamp>.html` — both the game and the editor bundled
+  into one file via an `<iframe srcdoc>` router. Open it directly in any browser.
+- After building, you can also just open `index.html` (it loads `js/*.js`).
+- `npm run typecheck` type-checks without emitting; `npm run watch` recompiles
+  on save (handy with a static file server for live dev).
+
+The compiler is configured as non-module (`tsconfig.json`), so each file emits a
+classic global `<script>` — matching the runtime, which uses no bundler/imports.
 
 ## Project layout
 
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `index.html` | Play page |
-| `level-editor.html` | Level editor page |
-| `game.js` | Game logic, rendering, animation, pathfinding |
-| `editor.js` | Level editor logic |
-| `geometry.js` | Tiling abstraction (square / pentagon / hexagon) |
-| `levels.js` | Level format, storage, JSON import/export |
-| `nav.js` | Navigation helper (two-file dev mode and single-file build) |
+| `index.html` / `level-editor.html` | Play and editor pages (load `js/*.js`) |
+| `src/game.ts` | Game logic, rendering, animation, pathfinding |
+| `src/editor.ts` | Level editor logic |
+| `src/geometry.ts` | Tiling abstraction (square / pentagon / hexagon) + types |
+| `src/levels.ts` | Level format, storage, JSON import/export |
+| `src/nav.ts` | Navigation helper (two-file dev mode and single-file build) |
 | `style.css` | Styles |
 | `build.js` | Bundles both pages into one standalone HTML file |
+| `tsconfig.json` | TypeScript config |
+| `js/`, `dist/` | Build outputs (git-ignored) |
