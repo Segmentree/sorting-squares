@@ -1,0 +1,12 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Node (none currently, but in case tooling is added)
+node_modules/
+
+# Build output (regenerate with `node build.js`)
+dist/

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sorting Squares — Level Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <h2>Level Editor</h2>
+      <a class="link-btn" id="play-link" href="index.html">▶ Play</a>
+    </div>
+
+    <label class="field">
+      <span>Level name</span>
+      <input type="text" id="ed-name" placeholder="My level" />
+    </label>
+
+    <label class="field">
+      <span>Cell shape</span>
+      <select id="ed-shape">
+        <option value="square">⬛ Square (4)</option>
+        <option value="pentagon">⬠ Pentagon (5)</option>
+        <option value="hexagon">⬡ Hexagon (6)</option>
+      </select>
+    </label>
+    <div class="field-row">
+      <label class="field">
+        <span>Width</span>
+        <input type="number" id="ed-cols" min="2" max="16" />
+      </label>
+      <label class="field">
+        <span>Height</span>
+        <input type="number" id="ed-rows" min="2" max="16" />
+      </label>
+    </div>
+    <button id="ed-apply-size" class="ghost">Apply shape / size</button>
+
+    <div class="tools">
+      <span class="tools-label">Tool</span>
+      <div class="tool-group" id="ed-tools">
+        <button class="tool" data-tool="box">🟩 Box</button>
+        <button class="tool" data-tool="slot">🟨 Slot</button>
+        <button class="tool" data-tool="erase">⌫ Erase</button>
+      </div>
+      <p class="hint">Click a cell to place. Click a slot again to rotate its open side (the dark wall marks the blocked back).</p>
+    </div>
+
+    <div class="btn-col">
+      <button id="ed-save">💾 Save level</button>
+      <button id="ed-new" class="ghost">＋ New</button>
+      <button id="ed-clear" class="ghost">Clear board</button>
+    </div>
+
+    <div class="btn-col">
+      <button id="ed-export" class="ghost">⬇ Export current</button>
+      <button id="ed-export-all" class="ghost">⬇ Export all</button>
+      <label id="ed-import" class="ghost import-btn">⬆ Import file
+        <input type="file" id="ed-import-file" accept="application/json,.json" hidden />
+      </label>
+    </div>
+
+    <p class="ed-status" id="ed-status"></p>
+
+    <div class="saved">
+      <h3>Saved levels</h3>
+      <ul id="ed-list" class="saved-list"></ul>
+    </div>
+  </aside>
+
+  <div class="app">
+    <header>
+      <h1>Level Editor</h1>
+      <p class="subtitle">
+        Design a puzzle: place <span class="legend box">green boxes</span> and
+        <span class="legend slot">yellow slots</span>, set each slot's open side,
+        then save. Saved levels appear in the play page's level picker.
+      </p>
+    </header>
+
+    <div class="hud">
+      <div class="counter">Boxes: <span id="ed-box-count">0</span> · Slots: <span id="ed-slot-count">0</span></div>
+    </div>
+
+    <div class="board-wrap">
+      <div id="board" class="board editor"></div>
+    </div>
+  </div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script src="geometry.js"></script>
+  <script src="levels.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>

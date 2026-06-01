@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sorting Squares</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <button id="openSidebar" class="sidebar-open" aria-label="Show options">☰</button>
+
+  <div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <h2>Options</h2>
+      <button id="closeSidebar" class="sidebar-close" aria-label="Hide options">«</button>
+    </div>
+
+    <div class="picker-row">
+      <select id="level-picker" aria-label="Choose level"></select>
+      <a class="link-btn" id="edit-link" href="level-editor.html" title="Open level editor">✎ Edit</a>
+    </div>
+
+    <div class="sidebar-section">
+    <h3>Random game</h3>
+    <label class="field">
+      <span>Cell shape</span>
+      <select id="cfg-shape">
+        <option value="square">⬛ Square (4)</option>
+        <option value="pentagon">⬠ Pentagon (5)</option>
+        <option value="hexagon">⬡ Hexagon (6)</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Grid width (columns)</span>
+      <input type="number" id="cfg-cols" min="2" max="16" />
+    </label>
+    <label class="field">
+      <span>Grid height (rows)</span>
+      <input type="number" id="cfg-rows" min="2" max="16" />
+    </label>
+    <label class="field">
+      <span>Green boxes</span>
+      <input type="number" id="cfg-boxes" min="0" max="256" />
+    </label>
+    <label class="field">
+      <span>Yellow cells</span>
+      <input type="number" id="cfg-slots" min="0" max="256" />
+    </label>
+    <button id="applyCfg" class="apply">Apply &amp; New Game</button>
+    <p class="cfg-hint" id="cfg-hint"></p>
+    </div>
+  </aside>
+
+  <div class="app">
+    <header>
+      <h1>Sorting Squares</h1>
+      <p class="subtitle">
+        Get every <span class="legend box">green box</span> onto a
+        <span class="legend slot">yellow slot</span>.
+        Slots can only be entered from the front or sides — never through the dark wall.
+      </p>
+    </header>
+
+    <div class="hud">
+      <div class="status" id="status">Select a green box to begin.</div>
+      <div class="counter">Placed: <span id="placed">0</span> / <span id="total">0</span></div>
+      <button id="newGame">New Game</button>
+    </div>
+
+    <div class="board-wrap">
+      <div id="board" class="board"></div>
+      <div id="win" class="win hidden">
+        <div class="win-card">
+          <h2>Solved! 🎉</h2>
+          <p>All boxes are sorted.</p>
+          <button id="winNew">Play Again</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script src="geometry.js"></script>
+  <script src="levels.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
