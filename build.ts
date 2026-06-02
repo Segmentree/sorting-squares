@@ -1,23 +1,25 @@
-#!/usr/bin/env node
 /* Build ONE self-contained HTML file containing both the game and the editor.
  *
  * Each page is first fully inlined (its CSS and every local <script> embedded),
  * then both are bundled into a shell document that shows one at a time inside an
  * <iframe srcdoc>, routed by the URL hash (#play / #editor). The result runs by
- * double-clicking in any browser on Windows, macOS, or Linux — no server. */
+ * double-clicking in any browser on Windows, macOS, or Linux — no server.
+ *
+ * Run via Node's TypeScript support: `node --experimental-strip-types build.ts`
+ * (wired up as `npm run build`, after `tsc` has emitted js/). */
 
 const fs = require("fs");
 const path = require("path");
 
-const root = __dirname;
-const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
+const root: string = __dirname;
+const read = (p: string): string => fs.readFileSync(path.join(root, p), "utf8");
 
 // Inline a page's stylesheet and local scripts into one HTML string.
-function inline(htmlFile) {
-  let html = read(htmlFile);
+function inline(htmlFile: string): string {
+  let html: string = read(htmlFile);
   html = html.replace(/<link rel="stylesheet" href="([^"]+\.css)"\s*\/?>/g,
-    (m, href) => `<style>\n${read(href)}\n</style>`);
-  html = html.replace(/<script src="([^"]+\.js)"><\/script>/g, (m, src) => {
+    (_m: string, href: string) => `<style>\n${read(href)}\n</style>`);
+  html = html.replace(/<script src="([^"]+\.js)"><\/script>/g, (m: string, src: string) => {
     if (/^https?:\/\//.test(src)) return m; // leave CDN scripts alone
     return `<script>\n${read(src)}\n</script>`;
   });
@@ -30,17 +32,17 @@ function inline(htmlFile) {
 // Embed an HTML string safely inside a <script> as a JS string literal:
 // JSON.stringify handles quotes/newlines; we also neutralise any "</script"
 // so it can't terminate the outer script during HTML parsing.
-function embed(s) {
+function embed(s: string): string {
   return JSON.stringify(s).replace(/<\/script/gi, "<\\/script");
 }
 
-const playHtml = inline("index.html");
-const editorHtml = inline("level-editor.html");
+const playHtml: string = inline("index.html");
+const editorHtml: string = inline("level-editor.html");
 
 // Build stamp — epoch milliseconds drives a unique filename; ISO form goes
 // inside the file for readability.
-const buildMs = Date.now();
-const buildStamp = new Date(buildMs).toISOString();
+const buildMs: number = Date.now();
+const buildStamp: string = new Date(buildMs).toISOString();
 
 const shell = `<!DOCTYPE html>
 <!-- Sorting Squares — built ${buildStamp} -->
@@ -72,10 +74,10 @@ route();
 </html>
 `;
 
-const outDir = path.join(root, "dist");
+const outDir: string = path.join(root, "dist");
 fs.mkdirSync(outDir, { recursive: true });
 const fileName = `sorting-squares-${buildMs}.html`;
-const outFile = path.join(outDir, fileName);
+const outFile: string = path.join(outDir, fileName);
 fs.writeFileSync(outFile, shell);
 
 // Remove older multi-file / non-stamped artifacts if present.
@@ -84,6 +86,6 @@ for (const stale of ["index.html", "level-editor.html", "sorting-squares.html"])
   if (fs.existsSync(p)) fs.unlinkSync(p);
 }
 
-const kb = (fs.statSync(outFile).size / 1024).toFixed(1);
+const kb: string = (fs.statSync(outFile).size / 1024).toFixed(1);
 console.log(`Built dist/${fileName} (${kb} KB) — build ${buildStamp}`);
 console.log("Open it in any browser — no server required. Play and editor are both inside this one file.");

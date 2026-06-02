@@ -4,7 +4,7 @@
   "description": "A small browser puzzle game: move every **green box** onto a **yellow slot**. Each slot has a dark wall on one edge — boxes can only enter from an open side, and they find a path around static boxes (boxes that are mid-move pass through each other). The game is won when every box sits on a slot.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc && node build.js",
+    "build": "tsc && node --experimental-strip-types build.ts",
     "watch": "tsc --watch"
   },
   "repository": {

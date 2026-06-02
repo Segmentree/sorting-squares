@@ -49,6 +49,6 @@ classic global `<script>` — matching the runtime, which uses no bundler/import
 | `src/levels.ts` | Level format, storage, JSON import/export |
 | `src/nav.ts` | Navigation helper (two-file dev mode and single-file build) |
 | `style.css` | Styles |
-| `build.js` | Bundles both pages into one standalone HTML file |
+| `build.ts` | Bundles both pages into one standalone HTML file (run by Node's type-stripping) |
 | `tsconfig.json` | TypeScript config |
 | `js/`, `dist/` | Build outputs (git-ignored) |
