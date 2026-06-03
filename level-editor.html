@@ -43,17 +43,26 @@
       <span class="tools-label">Tool</span>
       <div class="tool-group" id="ed-tools">
         <button class="tool" data-tool="box">🟩 Box</button>
+        <button class="tool" data-tool="red">🟥 Red</button>
         <button class="tool" data-tool="slot">🟨 Slot</button>
+        <button class="tool" data-tool="solid">🟫 Solid</button>
         <button class="tool" data-tool="hole">⬛ Hole</button>
         <button class="tool" data-tool="erase">⌫ Erase</button>
       </div>
-      <p class="hint">Click a cell to place. Click a slot again to rotate its open side (the dark wall marks the blocked back). A <b>Hole</b> is invisible in‑game and blocks movement (shown hatched here).</p>
+      <p class="hint">Click a cell to place. Click a slot again to rotate its open side (the dark wall marks the blocked back). A <b>Red</b> box roams free — it slips through other boxes and slot walls and never needs a slot (only holes and solids stop it). A <b>Solid</b> is a visible block nothing can pass. A <b>Hole</b> is invisible in‑game and blocks movement (shown hatched here).</p>
     </div>
 
     <div class="btn-col">
       <button id="ed-save">💾 Save level</button>
       <button id="ed-new" class="ghost">＋ New</button>
       <button id="ed-clear" class="ghost">Clear board</button>
+    </div>
+
+    <div class="btn-col" id="ed-fs">
+      <button id="ed-fs-reconnect" class="ghost" hidden>🔗 Reconnect file</button>
+      <button id="ed-fs-save" class="ghost">💾 Save to file…</button>
+      <button id="ed-fs-open" class="ghost">📂 Open levels file…</button>
+      <p class="ed-fs-status" id="ed-fs-status"></p>
     </div>
 
     <div class="btn-col">
@@ -76,8 +85,10 @@
     <header>
       <h1>Level Editor</h1>
       <p class="subtitle">
-        Design a puzzle: place <span class="legend box">green boxes</span> and
-        <span class="legend slot">yellow slots</span>, set each slot's open side,
+        Design a puzzle: place <span class="legend box">green boxes</span>,
+        <span class="legend red">red boxes</span>,
+        <span class="legend slot">yellow slots</span> and
+        <span class="legend solid">solid blocks</span>, set each slot's open side,
         then save. Saved levels appear in the play page's level picker.
       </p>
     </header>

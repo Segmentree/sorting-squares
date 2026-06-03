@@ -11,9 +11,10 @@
 (() => {
   type BoxState = "idle" | "moving" | "placed";
   interface Slot { r: number; c: number; wall: number; filled: boolean; reserved: boolean; el: SVGPolygonElement; wallLine?: SVGLineElement; }
-  interface Box { id: number; r: number; c: number; state: BoxState; target: Slot | null; el: HTMLElement; }
+  interface Box { id: number; r: number; c: number; state: BoxState; target: Slot | null; red: boolean; el: HTMLElement; }
   interface RC { r: number; c: number; }
-  interface Spec { shape: string; rows: number; cols: number; slots: Array<{ r: number; c: number; wall: number }>; boxes: RC[]; holes?: RC[]; }
+  interface BoxRC { r: number; c: number; red?: boolean; }
+  interface Spec { shape: string; rows: number; cols: number; slots: Array<{ r: number; c: number; wall: number }>; boxes: BoxRC[]; holes?: RC[]; solids?: RC[]; }
 
   const STEP_MS = 130; // animation time per cell stepped
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -25,7 +26,7 @@
   let tiling: Tiling = null as unknown as Tiling; // current Geometry tiling
   let boardSvg: SVGSVGElement;
 
-  const CONFIG = { rows: 10, cols: 10, boxes: 6, slots: 6, shape: "square" };
+  const CONFIG = { rows: 10, cols: 10, boxes: 6, reds: 0, slots: 6, solids: 0, shape: "square" };
   const LIMITS = { rows: [2, 16] as [number, number], cols: [2, 16] as [number, number] };
 
   const boardEl = document.getElementById("board")!;
@@ -40,6 +41,7 @@
   let selectedBox: Box | null = null;
   let wallEdges = new Set<string>(); // impassable edges between a slot and the cell behind its wall
   let holes = new Set<string>();     // invisible cells: not drawn, impassable (permanent obstacles)
+  let solids = new Set<string>();    // visible cells: drawn as a solid block, impassable for every box
 
   function key(r: number, c: number): string { return r + "," + c; }
   function cellExists(r: number, c: number): boolean { return tiling.has(key(r, c)); }
@@ -69,7 +71,7 @@
       if (holes.has(cell.key)) continue; // invisible cell — not drawn
       const poly = document.createElementNS(SVG_NS, "polygon");
       poly.setAttribute("points", cell.corners.map((p) => `${p.x},${p.y}`).join(" "));
-      poly.setAttribute("class", "cell" + ((cell.r + cell.c) % 2 ? " alt" : ""));
+      poly.setAttribute("class", "cell" + ((cell.r + cell.c) % 2 ? " alt" : "") + (solids.has(cell.key) ? " solid" : ""));
       poly.dataset.key = cell.key;
       poly.addEventListener("click", () => onCellClick(cell.r, cell.c));
       svg.appendChild(poly);
@@ -94,10 +96,11 @@
     return slot;
   }
 
-  // Add one green box at (r,c).
-  function addBox(r: number, c: number): Box {
-    const box: Box = { id: boxes.length, r, c, state: "idle", target: null, el: null as unknown as HTMLElement };
+  // Add one box at (r,c). Red boxes (red=true) pass through other boxes.
+  function addBox(r: number, c: number, red = false): Box {
+    const box: Box = { id: boxes.length, r, c, state: "idle", target: null, red, el: null as unknown as HTMLElement };
     box.el = makeBoxEl(box);
+    if (red) box.el.classList.add("red");
     boardEl.appendChild(box.el);
     positionBox(box);
     boxes.push(box);
@@ -116,6 +119,11 @@
     for (const h of spec.holes || []) {
       if (cellExists(h.r, h.c)) holes.add(key(h.r, h.c));
     }
+    // Solid cells — drawn as a block, permanent obstacles for every box.
+    solids = new Set();
+    for (const s of spec.solids || []) {
+      if (cellExists(s.r, s.c) && !holes.has(key(s.r, s.c))) solids.add(key(s.r, s.c));
+    }
 
     buildBoard();
     slots = [];
@@ -124,20 +132,22 @@
     selectedBox = null;
     winEl.classList.add("hidden");
 
+    const blockedCell = (r: number, c: number) => holes.has(key(r, c)) || solids.has(key(r, c));
     for (const s of spec.slots) {
-      if (cellExists(s.r, s.c) && !holes.has(key(s.r, s.c))) addSlot(s.r, s.c, clampWall(s.wall));
+      if (cellExists(s.r, s.c) && !blockedCell(s.r, s.c)) addSlot(s.r, s.c, clampWall(s.wall));
     }
     for (const b of spec.boxes) {
-      if (cellExists(b.r, b.c) && !holes.has(key(b.r, b.c))) addBox(b.r, b.c);
+      if (cellExists(b.r, b.c) && !blockedCell(b.r, b.c)) addBox(b.r, b.c, !!b.red);
     }
 
-    totalEl.textContent = String(boxes.length);
+    const goals = goalBoxes().length; // red boxes aren't goals
+    totalEl.textContent = String(goals);
     updatePlacedCount();
 
-    if (boxes.length === 0 || slots.length === 0) {
-      setStatus("This level has no boxes or no slots.");
-    } else if (boxes.length > slots.length) {
-      setStatus("Heads up: more boxes than slots, so not all can be sorted.");
+    if (goals === 0 || slots.length === 0) {
+      setStatus("This level has no green boxes or no slots.");
+    } else if (goals > slots.length) {
+      setStatus("Heads up: more green boxes than slots, so not all can be sorted.");
     } else {
       setStatus("Select a green box to begin.");
     }
@@ -154,7 +164,7 @@
     const t = Geometry.make(shape, CONFIG.rows, CONFIG.cols);
     const cellKeys = t.cellList.map((c) => c.key);
     const occupied = new Set<string>();
-    const spec: Spec = { shape, rows: t.rows, cols: t.cols, slots: [], boxes: [] };
+    const spec: Spec = { shape, rows: t.rows, cols: t.cols, slots: [], boxes: [], solids: [] };
 
     // Pick a random unoccupied cell key (works for any tiling, full rect or not).
     const pick = (): string | null => {
@@ -168,6 +178,14 @@
     const rc = (k: string): RC => { const [r, c] = k.split(",").map(Number); return { r, c }; };
 
     let guard = 0;
+    // Solids first — they shape the board the boxes must navigate.
+    while (spec.solids!.length < CONFIG.solids && occupied.size < cellKeys.length && guard < 9000) {
+      guard++;
+      const k = pick();
+      if (!k) break;
+      spec.solids!.push(rc(k));
+    }
+    guard = 0;
     while (spec.slots.length < CONFIG.slots && occupied.size < cellKeys.length && guard < 9000) {
       guard++;
       const k = pick();
@@ -182,6 +200,13 @@
       const k = pick();
       if (!k) break;
       spec.boxes.push(rc(k));
+    }
+    guard = 0;
+    while (spec.boxes.length < CONFIG.boxes + CONFIG.reds && occupied.size < cellKeys.length && guard < 9000) {
+      guard++;
+      const k = pick();
+      if (!k) break;
+      spec.boxes.push({ ...rc(k), red: true });
     }
     return spec;
   }
@@ -199,8 +224,9 @@
       rows: level.rows,
       cols: level.cols,
       slots: level.slots.map((s) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) })),
-      boxes: level.boxes.map((b) => ({ r: b.r, c: b.c })),
+      boxes: level.boxes.map((b) => ({ r: b.r, c: b.c, red: !!b.red })),
       holes: (level.holes || []).map((h) => ({ r: h.r, c: h.c })),
+      solids: (level.solids || []).map((s) => ({ r: s.r, c: s.c })),
     });
   }
 
@@ -256,23 +282,28 @@
 
   /* ---------- Occupancy / obstacles ---------- */
 
-  // Cells blocked for pathfinding: invisible cells (always), plus any box that is
-  // NOT moving and NOT the one we are routing. Moving boxes pass through.
+  // Cells blocked for pathfinding. Cell obstacles (invisible holes + visible
+  // solids) block every box. Other static boxes block a normal box too, but a
+  // red box passes through them. Moving boxes never block (they pass through).
   function blockedSet(movingBox: Box): Set<string> {
     const blocked = new Set(holes);
-    for (const b of boxes) {
-      if (b === movingBox) continue;
-      if (b.state === "moving") continue;
-      blocked.add(key(b.r, b.c));
+    for (const k of solids) blocked.add(k);
+    if (!movingBox.red) {
+      for (const b of boxes) {
+        if (b === movingBox) continue;
+        if (b.state === "moving") continue;
+        blocked.add(key(b.r, b.c));
+      }
     }
     return blocked;
   }
 
   /* ---------- Pathfinding (BFS) ---------- */
 
-  // Find shortest path from box to (tr,tc). Slot walls are impassable edges, so
-  // a slot can only be entered from its front or sides. Returns array of {r,c}
-  // incl. start & target, or null if unreachable.
+  // Find shortest path from box to (tr,tc). For normal boxes slot walls are
+  // impassable edges, so a slot can only be entered from its front or sides;
+  // red boxes ignore walls. Returns array of {r,c} incl. start & target, or
+  // null if unreachable.
   function findPath(box: Box, tr: number, tc: number): RC[] | null {
     const blocked = blockedSet(box);
     const start = key(box.r, box.c);
@@ -289,7 +320,7 @@
       for (const { key: nk } of tiling.neighbors(cur)) {
         if (prev.has(nk)) continue;
         if (blocked.has(nk)) continue;
-        if (wallEdges.has(edgeKeyK(cur, nk))) continue;
+        if (!box.red && wallEdges.has(edgeKeyK(cur, nk))) continue; // red boxes cross slot walls
 
         prev.set(nk, cur);
         queue.push(nk);
@@ -377,7 +408,9 @@
     selectedBox = box;
     box.el.classList.add("selected");
     boardEl.classList.add("selecting");
-    setStatus("Pick a yellow slot — or any empty cell to reposition.");
+    setStatus(box.red
+      ? "Red box — send it to any open cell (it slips through boxes and walls)."
+      : "Pick a yellow slot — or any empty cell to reposition.");
   }
 
   function clearSelection(): void {
@@ -390,7 +423,11 @@
     if (!selectedBox) return;
     const box = selectedBox;
 
-    const slot = slots.find((s) => s.r === r && s.c === c);
+    if (solids.has(key(r, c))) return; // solid block — not a destination
+
+    const slotCell = slots.find((s) => s.r === r && s.c === c) || null;
+    // Red boxes never claim a slot — they just park on the cell.
+    const slot = box.red ? null : slotCell;
 
     if (box.r === r && box.c === c) return; // its own cell
 
@@ -401,7 +438,7 @@
       return;
     }
 
-    if (slot && (slot.filled || slot.reserved)) {
+    if (slotCell && (slotCell.filled || slotCell.reserved)) {
       setStatus("That slot is already taken.", "error");
       showAngry(box);
       return;
@@ -449,12 +486,16 @@
     statusEl.className = "status" + (kind ? " " + kind : "");
   }
 
+  // Only green boxes are goals; red boxes are free-roaming and never counted.
+  function goalBoxes(): Box[] { return boxes.filter((b) => !b.red); }
+
   function updatePlacedCount(): void {
-    placedEl.textContent = String(boxes.filter((b) => b.state === "placed").length);
+    placedEl.textContent = String(goalBoxes().filter((b) => b.state === "placed").length);
   }
 
   function checkWin(): void {
-    const allPlaced = boxes.length > 0 && boxes.every((b) => b.state === "placed");
+    const goals = goalBoxes();
+    const allPlaced = goals.length > 0 && goals.every((b) => b.state === "placed");
     if (allPlaced) {
       setStatus("All boxes sorted!", "ok");
       winEl.classList.remove("hidden");
@@ -467,7 +508,9 @@
     rows: document.getElementById("cfg-rows") as HTMLInputElement,
     cols: document.getElementById("cfg-cols") as HTMLInputElement,
     boxes: document.getElementById("cfg-boxes") as HTMLInputElement,
+    reds: document.getElementById("cfg-reds") as HTMLInputElement,
     slots: document.getElementById("cfg-slots") as HTMLInputElement,
+    solids: document.getElementById("cfg-solids") as HTMLInputElement,
     shape: document.getElementById("cfg-shape") as HTMLSelectElement,
   };
   const cfgHint = document.getElementById("cfg-hint")!;
@@ -486,7 +529,7 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      for (const k of ["rows", "cols", "boxes", "slots"]) {
+      for (const k of ["rows", "cols", "boxes", "reds", "slots", "solids"]) {
         if (typeof saved[k] === "number" && saved[k] >= 0) (CONFIG as any)[k] = saved[k];
       }
       if (Geometry.SHAPES.includes(saved.shape)) CONFIG.shape = saved.shape;
@@ -499,25 +542,36 @@
     const cols = clamp(parseInt(inputs.cols.value, 10) || CONFIG.cols, ...LIMITS.cols);
     const capacity = rows * cols;
 
+    // Fill the board in priority order, each capped by what's left of the grid.
     let slotN = Math.max(0, parseInt(inputs.slots.value, 10) || 0);
     let boxN = Math.max(0, parseInt(inputs.boxes.value, 10) || 0);
-    slotN = Math.min(slotN, capacity);
-    boxN = Math.min(boxN, capacity - slotN);
+    let redN = Math.max(0, parseInt(inputs.reds.value, 10) || 0);
+    let solidN = Math.max(0, parseInt(inputs.solids.value, 10) || 0);
+    let left = capacity;
+    slotN = Math.min(slotN, left); left -= slotN;
+    boxN = Math.min(boxN, left); left -= boxN;
+    redN = Math.min(redN, left); left -= redN;
+    solidN = Math.min(solidN, left); left -= solidN;
 
     const shape = Geometry.SHAPES.includes(inputs.shape.value) ? inputs.shape.value : "square";
 
-    CONFIG.rows = rows; CONFIG.cols = cols; CONFIG.slots = slotN; CONFIG.boxes = boxN; CONFIG.shape = shape;
+    CONFIG.rows = rows; CONFIG.cols = cols;
+    CONFIG.slots = slotN; CONFIG.boxes = boxN; CONFIG.reds = redN; CONFIG.solids = solidN;
+    CONFIG.shape = shape;
 
     inputs.rows.value = String(rows);
     inputs.cols.value = String(cols);
     inputs.slots.value = String(slotN);
     inputs.boxes.value = String(boxN);
+    inputs.reds.value = String(redN);
+    inputs.solids.value = String(solidN);
     inputs.shape.value = shape;
 
+    const totalBoxes = boxN + redN;
     cfgHint.textContent =
-      boxN > slotN
+      totalBoxes > slotN
         ? "More boxes than slots — not all can be sorted."
-        : `${cap(shape)} ${cols}×${rows}, ${boxN} boxes, ${slotN} slots.`;
+        : `${cap(shape)} ${cols}×${rows}, ${boxN}+${redN} boxes, ${slotN} slots, ${solidN} solid.`;
 
     saveConfig();
   }
@@ -595,7 +649,9 @@
   inputs.rows.value = String(CONFIG.rows);
   inputs.cols.value = String(CONFIG.cols);
   inputs.boxes.value = String(CONFIG.boxes);
+  inputs.reds.value = String(CONFIG.reds);
   inputs.slots.value = String(CONFIG.slots);
+  inputs.solids.value = String(CONFIG.solids);
   inputs.shape.value = CONFIG.shape;
 
   document.getElementById("applyCfg")!.addEventListener("click", applyAndStart);
@@ -617,4 +673,12 @@
 
   populatePicker();
   startSelected();
+
+  // If a levels file was linked in the editor and the browser still grants
+  // access silently, pull it so the picker reflects it (else use the cache).
+  if (Levels.fs && Levels.fs.supported) {
+    Levels.fs.reconnect().then((st) => {
+      if (st && st.ready) populatePicker();
+    }).catch(() => { /* ignore — cached levels remain */ });
+  }
 })();

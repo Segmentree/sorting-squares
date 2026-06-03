@@ -76,14 +76,20 @@ route();
 
 const outDir: string = path.join(root, "dist");
 fs.mkdirSync(outDir, { recursive: true });
-const fileName = `sorting-squares-${buildMs}.html`;
+// STABLE filename: every build overwrites the same file so the browser keeps
+// its localStorage for it (file:// storage is keyed by path — a per-build
+// timestamped name would strand saved levels on every rebuild). The build
+// timestamp still lives in the <meta>/comment inside the file.
+const fileName = `sorting-squares.html`;
 const outFile: string = path.join(outDir, fileName);
 fs.writeFileSync(outFile, shell);
 
-// Remove older multi-file / non-stamped artifacts if present.
-for (const stale of ["index.html", "level-editor.html", "sorting-squares.html"]) {
-  const p = path.join(outDir, stale);
-  if (fs.existsSync(p)) fs.unlinkSync(p);
+// Remove older multi-file artifacts and any previous timestamped builds.
+for (const stale of fs.readdirSync(outDir)) {
+  if (stale === fileName) continue;
+  if (stale === "index.html" || stale === "level-editor.html" || /^sorting-squares-\d+\.html$/.test(stale)) {
+    fs.unlinkSync(path.join(outDir, stale));
+  }
 }
 
 const kb: string = (fs.statSync(outFile).size / 1024).toFixed(1);

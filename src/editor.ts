@@ -8,9 +8,10 @@
 (() => {
   const SVG_NS = "http://www.w3.org/2000/svg";
 
-  // A cell's editor state: empty, a box, an invisible hole, or a slot (the
-  // number is its walled edge index).
-  type CellVal = null | "box" | "hole" | number;
+  // A cell's editor state: empty, a green box, a red box (passes through other
+  // boxes), an invisible hole, a visible solid block, or a slot (the number is
+  // its walled edge index).
+  type CellVal = null | "box" | "red" | "hole" | "solid" | number;
 
   const boardEl = document.getElementById("board")!;
   const statusEl = document.getElementById("ed-status")!;
@@ -85,9 +86,11 @@
 
     if (v === "hole") {
       poly.classList.add("hole"); // invisible in-game; hatched here
-    } else if (v === "box") {
+    } else if (v === "solid") {
+      poly.classList.add("solid"); // visible, impassable for every box
+    } else if (v === "box" || v === "red") {
       const b = document.createElement("div");
-      b.className = "ed-box";
+      b.className = "ed-box" + (v === "red" ? " red" : "");
       const s = tiling.boxSize, h = s / 2;
       b.style.width = s + "px";
       b.style.height = s + "px";
@@ -113,8 +116,12 @@
       model[r][c] = null;
     } else if (tool === "hole") {
       model[r][c] = v === "hole" ? null : "hole";
+    } else if (tool === "solid") {
+      model[r][c] = v === "solid" ? null : "solid";
     } else if (tool === "box") {
       model[r][c] = v === "box" ? null : "box";
+    } else if (tool === "red") {
+      model[r][c] = v === "red" ? null : "red";
     } else if (tool === "slot") {
       if (isSlot(v)) {
         model[r][c] = (v + 1) % tiling.sides; // rotate the walled edge
@@ -131,8 +138,9 @@
     let b = 0, s = 0;
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
-        if (model[r][c] === "box") b++;
-        else if (isSlot(model[r][c])) s++;
+        const v = model[r][c];
+        if (v === "box" || v === "red") b++;
+        else if (isSlot(v)) s++;
       }
     boxCountEl.textContent = String(b);
     slotCountEl.textContent = String(s);
@@ -160,17 +168,20 @@
   /* ---------- Level <-> model ---------- */
 
   function collectLevel(): Level {
-    const slots: Level["slots"] = [], boxes: Level["boxes"] = [], holes: Level["holes"] = [];
+    const slots: Level["slots"] = [], boxes: Level["boxes"] = [];
+    const holes: Level["holes"] = [], solids: Level["solids"] = [];
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
         const v = model[r][c];
         if (v === "box") boxes.push({ r, c });
+        else if (v === "red") boxes.push({ r, c, red: true });
         else if (v === "hole") holes.push({ r, c });
+        else if (v === "solid") solids.push({ r, c });
         else if (isSlot(v)) slots.push({ r, c, wall: v });
       }
     return {
       id: currentId, name: nameInput.value.trim() || "Untitled", shape, rows, cols,
-      slots, boxes, holes, updatedAt: 0,
+      slots, boxes, holes, solids, updatedAt: 0,
     };
   }
 
@@ -183,8 +194,9 @@
       const w = Number.isInteger(s.wall) ? (s.wall as number) : 0;
       model[s.r][s.c] = ((w % sides) + sides) % sides;
     }
-    for (const b of level.boxes) model[b.r][b.c] = "box";
+    for (const b of level.boxes) model[b.r][b.c] = b.red ? "red" : "box";
     for (const h of (level.holes || [])) model[h.r][h.c] = "hole";
+    for (const s of (level.solids || [])) model[s.r][s.c] = "solid";
     currentId = level.id;
     nameInput.value = level.name || "";
     rowsInput.value = String(rows); colsInput.value = String(cols); shapeInput.value = shape;
@@ -198,12 +210,14 @@
     const level = collectLevel();
     const check = Levels.validate(level);
     if (!check.ok) { setStatus("Can't save: " + check.error, "error"); return; }
-    if (level.slots.length === 0 || level.boxes.length === 0) {
-      setStatus("Add at least one box and one slot before saving.", "error");
+    const greens = level.boxes.filter((b) => !b.red).length;
+    if (level.slots.length === 0 || greens === 0) {
+      setStatus("Add at least one green box and one slot before saving.", "error");
       return;
     }
     currentId = Levels.save(level); // assigns id on first save
     refreshList();
+    void syncFile(); // mirror to the linked file, if any
     setStatus(`Saved "${level.name}".`, "ok");
   }
 
@@ -259,6 +273,7 @@
           if (lvl.id) Levels.remove(lvl.id);
           if (currentId === lvl.id) currentId = null;
           refreshList();
+          void syncFile();
         }, "danger")
       );
 
@@ -307,6 +322,7 @@
       if (res.error) setStatus("Import failed: " + res.error, "error");
       else setStatus(`Imported ${res.added} level(s)${res.skipped ? `, skipped ${res.skipped}` : ""}.`, "ok");
       refreshList();
+      void syncFile();
     };
     reader.readAsText(file);
     (e.target as HTMLInputElement).value = ""; // allow re-importing the same file
@@ -318,6 +334,87 @@
     gotoView("play");
   });
 
+  /* ---------- Durable file (File System Access) ---------- */
+
+  const fsGroup = document.getElementById("ed-fs")!;
+  const fsSaveBtn = document.getElementById("ed-fs-save")!;
+  const fsOpenBtn = document.getElementById("ed-fs-open")!;
+  const fsReconnectBtn = document.getElementById("ed-fs-reconnect") as HTMLButtonElement;
+  const fsStatusEl = document.getElementById("ed-fs-status")!;
+  let fsReady = false; // confirmed read/write access to the linked file this session
+
+  function renderFsStatus(): void {
+    const name = Levels.fs.linkedName();
+    if (!name) {
+      fsStatusEl.textContent = "Not linked. Levels live only in this browser until you save them to a file.";
+    } else if (fsReady) {
+      fsStatusEl.textContent = `Linked: ${name} — changes save to this file automatically.`;
+    } else {
+      fsStatusEl.textContent = `Remembered ${name}. Click “Reconnect file” to load it and resume autosave.`;
+    }
+  }
+
+  // Mirror the current library to the linked file after a change.
+  async function syncFile(): Promise<void> {
+    if (!Levels.fs.linkedName()) return;
+    try {
+      if (await Levels.fs.writeFile(true)) {
+        fsReady = true;
+        fsReconnectBtn.hidden = true;
+        renderFsStatus();
+      }
+    } catch (e) { /* refused or failed — the localStorage cache still holds it */ }
+  }
+
+  fsSaveBtn.addEventListener("click", async () => {
+    try {
+      const name = await Levels.fs.bindNew();
+      if (name) {
+        fsReady = true;
+        fsReconnectBtn.hidden = true;
+        renderFsStatus();
+        setStatus(`Saved your levels to ${name}.`, "ok");
+      }
+    } catch (e) { /* picker cancelled */ }
+  });
+
+  fsOpenBtn.addEventListener("click", async () => {
+    try {
+      const res = await Levels.fs.openFile();
+      if (res) {
+        fsReady = true;
+        fsReconnectBtn.hidden = true;
+        refreshList();
+        renderFsStatus();
+        setStatus(`Loaded ${res.loaded} level(s) from ${res.name}.`, "ok");
+      }
+    } catch (e) { /* picker cancelled */ }
+  });
+
+  fsReconnectBtn.addEventListener("click", async () => {
+    try {
+      const res = await Levels.fs.pull();
+      if (res) {
+        fsReady = true;
+        fsReconnectBtn.hidden = true;
+        refreshList();
+        renderFsStatus();
+        setStatus(`Reconnected ${res.name} — ${res.loaded} level(s) loaded.`, "ok");
+      }
+    } catch (e) { /* refused */ }
+  });
+
+  function initDurableFile(): void {
+    if (!Levels.fs.supported) { fsGroup.hidden = true; return; }
+    renderFsStatus();
+    Levels.fs.reconnect().then((st) => {
+      if (!st) return;
+      if (st.ready) { fsReady = true; refreshList(); }
+      else { fsReconnectBtn.hidden = false; fsReconnectBtn.textContent = `🔗 Reconnect ${st.name}`; }
+      renderFsStatus();
+    }).catch(() => { /* ignore */ });
+  }
+
   /* ---------- Boot ---------- */
 
   rowsInput.value = String(rows);
@@ -327,6 +424,7 @@
   selectTool("box");
   buildGrid();
   refreshList();
+  initDurableFile();
 
   // If arriving with ?edit=<id> (or #editor?edit=<id>), open that level.
   const editId = routeParams().get("edit");

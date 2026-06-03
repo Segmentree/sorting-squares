@@ -6,6 +6,7 @@
  */
 
 interface Pos { r: number; c: number; }
+interface BoxDef { r: number; c: number; red?: boolean; } // red boxes pass through other boxes
 interface SlotDef { r: number; c: number; wall?: number | null; facing?: string; }
 interface Level {
   id: string | null;
@@ -14,8 +15,9 @@ interface Level {
   rows: number;
   cols: number;
   slots: SlotDef[];
-  boxes: Pos[];
-  holes: Pos[];
+  boxes: BoxDef[];
+  holes: Pos[];   // invisible impassable cells
+  solids: Pos[];  // visible impassable cells (block every box, even red)
   updatedAt: number;
 }
 type ValidateResult = { ok: true } | { ok: false; error: string };
@@ -76,11 +78,16 @@ const Levels = (() => {
     if (!Array.isArray(level.slots)) return err("slots must be an array.");
     if (!Array.isArray(level.boxes)) return err("boxes must be an array.");
     if (level.holes != null && !Array.isArray(level.holes)) return err("holes must be an array.");
+    if (level.solids != null && !Array.isArray(level.solids)) return err("solids must be an array.");
 
     const seen = new Set<string>();
     for (const h of level.holes || []) {
       if (!isInt(h.r, 0, rows - 1) || !isInt(h.c, 0, cols - 1)) return err("A hole is out of bounds.");
       seen.add(h.r + "," + h.c); // holes may not share a cell with a piece
+    }
+    for (const s of level.solids || []) {
+      if (!isInt(s.r, 0, rows - 1) || !isInt(s.c, 0, cols - 1)) return err("A solid is out of bounds.");
+      seen.add(s.r + "," + s.c); // solids may not share a cell with a piece
     }
     for (const s of level.slots) {
       if (!isInt(s.r, 0, rows - 1) || !isInt(s.c, 0, cols - 1)) return err("A slot is out of bounds.");
@@ -110,8 +117,11 @@ const Levels = (() => {
       slots: Array.isArray(obj.slots)
         ? obj.slots.map((s: SlotDef) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
         : [],
-      boxes: Array.isArray(obj.boxes) ? obj.boxes.map((b: Pos) => ({ r: b.r, c: b.c })) : [],
+      boxes: Array.isArray(obj.boxes)
+        ? obj.boxes.map((b: BoxDef) => (b.red ? { r: b.r, c: b.c, red: true } : { r: b.r, c: b.c }))
+        : [],
       holes: Array.isArray(obj.holes) ? obj.holes.map((h: Pos) => ({ r: h.r, c: h.c })) : [],
+      solids: Array.isArray(obj.solids) ? obj.solids.map((s: Pos) => ({ r: s.r, c: s.c })) : [],
       updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
     };
     return validate(level).ok ? level : null;
@@ -162,10 +172,133 @@ const Levels = (() => {
   function isInt(v: any, lo: number, hi: number): boolean { return Number.isInteger(v) && v >= lo && v <= hi; }
   function err(msg: string): ValidateResult { return { ok: false, error: msg }; }
 
+  /* ---------- Durable storage: bind a real file (File System Access API) ----
+   * localStorage stays the fast in-session cache; a user-chosen JSON file is the
+   * durable backing that survives clearing the browser, a new session, or even
+   * another browser. We remember the file handle in IndexedDB so it can be
+   * reconnected next time (browsers re-prompt for permission with one click).
+   * Browsers without the API (Firefox/Safari) use Export/Import instead.
+   */
+  const fsSupported = typeof window !== "undefined" && "showSaveFilePicker" in window;
+  const HANDLE_DB = "sortingSquares.fs", HANDLE_STORE = "handles", HANDLE_KEY = "library";
+  let boundHandle: any = null; // a FileSystemFileHandle once linked
+
+  function idbOpen(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(HANDLE_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(HANDLE_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function handleGet(): Promise<any> {
+    try {
+      const db = await idbOpen();
+      return await new Promise((res, rej) => {
+        const r = db.transaction(HANDLE_STORE, "readonly").objectStore(HANDLE_STORE).get(HANDLE_KEY);
+        r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error);
+      });
+    } catch (e) { return null; }
+  }
+  async function handleSet(h: any): Promise<void> {
+    try {
+      const db = await idbOpen();
+      await new Promise<void>((res, rej) => {
+        const r = db.transaction(HANDLE_STORE, "readwrite").objectStore(HANDLE_STORE).put(h, HANDLE_KEY);
+        r.onsuccess = () => res(); r.onerror = () => rej(r.error);
+      });
+    } catch (e) { /* ignore — handle just won't be remembered */ }
+  }
+
+  async function hasPermission(mode: "read" | "readwrite", request: boolean): Promise<boolean> {
+    if (!boundHandle) return false;
+    const opts = { mode };
+    try {
+      if ((await boundHandle.queryPermission(opts)) === "granted") return true;
+      if (!request) return false;
+      return (await boundHandle.requestPermission(opts)) === "granted";
+    } catch (e) { return false; }
+  }
+
+  // Replace the whole library with normalized levels from JSON text (keeps ids).
+  function loadFromText(text: string): number {
+    let parsed: any;
+    try { parsed = JSON.parse(text); } catch (e) { return 0; }
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const out: Level[] = [];
+    for (const item of items) {
+      const lvl = normalize(item);
+      if (lvl) { if (!lvl.id) lvl.id = uid(); out.push(lvl); }
+    }
+    persist(out);
+    return out.length;
+  }
+
+  // Write the current library to the bound file. Returns false if no file is
+  // linked or permission was refused.
+  async function writeFile(request = false): Promise<boolean> {
+    if (!boundHandle || !(await hasPermission("readwrite", request))) return false;
+    const w = await boundHandle.createWritable();
+    await w.write(JSON.stringify(loadAll(), null, 2));
+    await w.close();
+    return true;
+  }
+
+  // "Save to file" — pick a brand-new file and write the current library into it.
+  async function bindNew(): Promise<string | null> {
+    if (!fsSupported) return null;
+    const handle = await window.showSaveFilePicker!({
+      suggestedName: "sorting-squares-levels.json",
+      types: [{ description: "Sorting Squares levels", accept: { "application/json": [".json"] } }],
+    });
+    boundHandle = handle;
+    await handleSet(handle);
+    await writeFile(true);
+    return handle.name;
+  }
+
+  // "Open file" — pick an existing file, load it into the library, and bind it.
+  async function openFile(): Promise<{ name: string; loaded: number } | null> {
+    if (!fsSupported) return null;
+    const [handle] = await window.showOpenFilePicker!({
+      types: [{ description: "Sorting Squares levels", accept: { "application/json": [".json"] } }],
+      multiple: false,
+    });
+    boundHandle = handle;
+    await handleSet(handle);
+    const loaded = loadFromText(await (await handle.getFile()).text());
+    return { name: handle.name, loaded };
+  }
+
+  // Startup: re-attach the remembered handle. If the browser still grants read
+  // access silently, pull its contents; otherwise report ready:false so the UI
+  // can offer a one-click reconnect (permission prompts need a user gesture).
+  async function reconnect(): Promise<{ name: string; ready: boolean } | null> {
+    if (!fsSupported) return null;
+    const h = await handleGet();
+    if (!h) return null;
+    boundHandle = h;
+    let ready = false;
+    try { ready = (await h.queryPermission({ mode: "read" })) === "granted"; } catch (e) { ready = false; }
+    if (ready) { try { loadFromText(await (await h.getFile()).text()); } catch (e) { /* keep cache */ } }
+    return { name: h.name, ready };
+  }
+
+  // Ask for permission (needs a user gesture) and pull the bound file's contents.
+  async function pull(): Promise<{ name: string; loaded: number } | null> {
+    if (!boundHandle || !(await hasPermission("read", true))) return null;
+    const loaded = loadFromText(await (await boundHandle.getFile()).text());
+    return { name: boundHandle.name, loaded };
+  }
+
+  function linkedName(): string | null { return boundHandle ? boundHandle.name : null; }
+
+  const fs = { supported: fsSupported, bindNew, openFile, reconnect, pull, writeFile, linkedName };
+
   return {
     KEY, SHAPES, SIDES, FACINGS, SIZE_MIN, SIZE_MAX,
     list, get, save, remove, validate, normalize,
-    importJSON, exportLevel, exportAll, download,
+    importJSON, exportLevel, exportAll, download, fs,
   };
 })();
 
