@@ -1,9 +1,5 @@
 name: Deploy to GitHub Pages
 
-# Builds the TypeScript and publishes the standalone play/editor pages to GitHub
-# Pages. Hosting at one stable URL means players' saved levels (localStorage)
-# survive every new deploy — no file juggling.
-
 on:
   push:
     branches: [main]
@@ -14,8 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-# Let a newer deploy supersede an in-flight one, but never cancel a run already
-# publishing.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -30,18 +24,13 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: npm run build # tsc -> js/ (ES modules)
-      - name: Assemble site
-        run: |
-          mkdir -p _site/js
-          cp index.html level-editor.html style.css _site/
-          cp js/*.js _site/js/
+      - run: npm run build
       - uses: actions/configure-pages@v5
         with:
           enablement: true # turn Pages on (source = Actions) without the UI toggle
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
   deploy:
     needs: build

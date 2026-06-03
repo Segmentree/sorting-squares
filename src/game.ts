@@ -1,32 +1,17 @@
-/* Sorting Squares
- * Move every green box onto a yellow slot. A slot has a dark wall on its
- * "back" side and can only be entered from the front or the two laterals.
- * Boxes find a path through empty cells; static boxes block the way, but
- * boxes that are currently moving do not (they simply pass through).
- *
- * Entry module for the play page (loaded via <script type="module">). The IIFE
- * is now just scoping sugar — module scope already isolates these names.
- */
-import { Geometry, type Tiling, type Cell } from "./geometry.js";
+import { Geometry, type Tiling } from "./geometry.js";
 import { Levels, type Level } from "./levels.js";
 import { gotoView, routeParams } from "./nav.js";
+import { renderGrid } from "./board.js";
+import type { Box, Slot, RC, Spec } from "./elements.js";
 
 (() => {
-  type BoxState = "idle" | "moving" | "placed";
-  interface Slot { r: number; c: number; wall: number; filled: boolean; reserved: boolean; el: SVGPolygonElement; wallLine?: SVGLineElement; }
-  interface Box { id: number; r: number; c: number; state: BoxState; target: Slot | null; red: boolean; el: HTMLElement; }
-  interface RC { r: number; c: number; }
-  interface BoxRC { r: number; c: number; red?: boolean; }
-  interface Spec { shape: string; rows: number; cols: number; slots: Array<{ r: number; c: number; wall: number }>; boxes: BoxRC[]; holes?: RC[]; solids?: RC[]; }
-
-  const STEP_MS = 130; // animation time per cell stepped
+  const STEP_MS = 130;
   const SVG_NS = "http://www.w3.org/2000/svg";
 
-  // Grid dimensions / shape — set by newGame() from the sidebar config.
   let ROWS = 10;
   let COLS = 10;
   let SHAPE = "square";
-  let tiling: Tiling = null as unknown as Tiling; // current Geometry tiling
+  let tiling: Tiling = null as unknown as Tiling;
   let boardSvg: SVGSVGElement;
 
   const CONFIG = { rows: 10, cols: 10, boxes: 6, reds: 0, slots: 6, solids: 0, shape: "square" };
@@ -42,9 +27,12 @@ import { gotoView, routeParams } from "./nav.js";
   let slots: Slot[] = [];
   let boxes: Box[] = [];
   let selectedBox: Box | null = null;
-  let wallEdges = new Set<string>(); // impassable edges between a slot and the cell behind its wall
-  let holes = new Set<string>();     // invisible cells: not drawn, impassable (permanent obstacles)
-  let solids = new Set<string>();    // visible cells: drawn as a solid block, impassable for every box
+  let wallEdges = new Set<string>();
+  let holes = new Set<string>();
+  let solids = new Set<string>();
+  let labelPad = { x: 0, y: 0 };
+  let gridHighlight: (cellKey: string, on: boolean) => void = () => {};
+  let gridCoordOf: (cellKey: string) => string = () => "";
 
   function key(r: number, c: number): string { return r + "," + c; }
   function cellExists(r: number, c: number): boolean { return tiling.has(key(r, c)); }
@@ -53,55 +41,31 @@ import { gotoView, routeParams } from "./nav.js";
     return { cx: cell.cx, cy: cell.cy };
   }
 
-  // Undirected edge between two cells, by their string keys; order-independent.
   function edgeKeyK(a: string, b: string): string { return a < b ? a + "|" + b : b + "|" + a; }
 
-  /* ---------- Board construction (SVG) ---------- */
-
   function buildBoard(): void {
-    boardEl.innerHTML = "";
-    boardEl.style.width = tiling.width + "px";
-    boardEl.style.height = tiling.height + "px";
-    cellEls = new Map();
-
-    const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("width", String(tiling.width));
-    svg.setAttribute("height", String(tiling.height));
-    svg.setAttribute("viewBox", `0 0 ${tiling.width} ${tiling.height}`);
-    svg.classList.add("board-svg");
-
-    for (const cell of tiling.cellList) {
-      if (holes.has(cell.key)) continue; // invisible cell — not drawn
-      const poly = document.createElementNS(SVG_NS, "polygon");
-      poly.setAttribute("points", cell.corners.map((p) => `${p.x},${p.y}`).join(" "));
-      poly.setAttribute("class", "cell" + ((cell.r + cell.c) % 2 ? " alt" : "") + (solids.has(cell.key) ? " solid" : ""));
-      poly.dataset.key = cell.key;
-      poly.addEventListener("click", () => onCellClick(cell.r, cell.c));
-      svg.appendChild(poly);
-      cellEls.set(cell.key, poly);
-    }
-    boardEl.appendChild(svg);
-    boardSvg = svg;
+    const view = renderGrid(boardEl, tiling, SHAPE, { holes, onCellClick, hover: true });
+    boardSvg = view.svg;
+    cellEls = view.cellEls;
+    labelPad = view.pad;
+    gridHighlight = view.highlight;
+    gridCoordOf = view.coordOf;
+    for (const k of solids) cellEls.get(k)?.classList.add("solid");
   }
-
-  /* ---------- Level generation ---------- */
 
   function randInt(n: number): number { return Math.floor(Math.random() * n); }
 
-  // Add one slot (with its wall edge) from a {r,c,wall} spec.
   function addSlot(r: number, c: number, wall: number): Slot {
     const slot: Slot = { r, c, wall, filled: false, reserved: false, el: cellEls.get(key(r, c))! };
     slots.push(slot);
     decorateSlot(slot);
-    // The wall blocks the edge between the slot and the cell across that edge.
     const nk = tiling.neighborAcross(key(r, c), wall);
     if (nk) wallEdges.add(edgeKeyK(key(r, c), nk));
     return slot;
   }
 
-  // Add one box at (r,c). Red boxes (red=true) pass through other boxes.
-  function addBox(r: number, c: number, red = false): Box {
-    const box: Box = { id: boxes.length, r, c, state: "idle", target: null, red, el: null as unknown as HTMLElement };
+  function addBox(r: number, c: number, red = false, tag: RC | null = null): Box {
+    const box: Box = { id: boxes.length, r, c, state: "idle", target: null, tag, red, el: null as unknown as HTMLElement };
     box.el = makeBoxEl(box);
     if (red) box.el.classList.add("red");
     boardEl.appendChild(box.el);
@@ -110,19 +74,16 @@ import { gotoView, routeParams } from "./nav.js";
     return box;
   }
 
-  // Build the board from a spec.
   function buildSpec(spec: Spec): void {
     SHAPE = Geometry.SHAPES.includes(spec.shape) ? spec.shape : "square";
     tiling = Geometry.make(SHAPE, spec.rows, spec.cols);
     ROWS = tiling.rows; // pentagon rounds up to even
     COLS = tiling.cols;
 
-    // Invisible cells — not drawn, and permanent obstacles for pathfinding.
     holes = new Set();
     for (const h of spec.holes || []) {
       if (cellExists(h.r, h.c)) holes.add(key(h.r, h.c));
     }
-    // Solid cells — drawn as a block, permanent obstacles for every box.
     solids = new Set();
     for (const s of spec.solids || []) {
       if (cellExists(s.r, s.c) && !holes.has(key(s.r, s.c))) solids.add(key(s.r, s.c));
@@ -140,10 +101,10 @@ import { gotoView, routeParams } from "./nav.js";
       if (cellExists(s.r, s.c) && !blockedCell(s.r, s.c)) addSlot(s.r, s.c, clampWall(s.wall));
     }
     for (const b of spec.boxes) {
-      if (cellExists(b.r, b.c) && !blockedCell(b.r, b.c)) addBox(b.r, b.c, !!b.red);
+      if (cellExists(b.r, b.c) && !blockedCell(b.r, b.c)) addBox(b.r, b.c, !!b.red, b.tag || null);
     }
 
-    const goals = goalBoxes().length; // red boxes aren't goals
+    const goals = goalBoxes().length;
     totalEl.textContent = String(goals);
     updatePlacedCount();
 
@@ -161,7 +122,6 @@ import { gotoView, routeParams } from "./nav.js";
     return ((n % tiling.sides) + tiling.sides) % tiling.sides;
   }
 
-  // Random spec from the sidebar CONFIG (used by New Game).
   function generateRandomSpec(): Spec {
     const shape = CONFIG.shape;
     const t = Geometry.make(shape, CONFIG.rows, CONFIG.cols);
@@ -169,7 +129,6 @@ import { gotoView, routeParams } from "./nav.js";
     const occupied = new Set<string>();
     const spec: Spec = { shape, rows: t.rows, cols: t.cols, slots: [], boxes: [], solids: [] };
 
-    // Pick a random unoccupied cell key (works for any tiling, full rect or not).
     const pick = (): string | null => {
       let k = "", guard = 0;
       do { k = cellKeys[randInt(cellKeys.length)]; guard++; }
@@ -181,7 +140,6 @@ import { gotoView, routeParams } from "./nav.js";
     const rc = (k: string): RC => { const [r, c] = k.split(",").map(Number); return { r, c }; };
 
     let guard = 0;
-    // Solids first — they shape the board the boxes must navigate.
     while (spec.solids!.length < CONFIG.solids && occupied.size < cellKeys.length && guard < 9000) {
       guard++;
       const k = pick();
@@ -218,8 +176,6 @@ import { gotoView, routeParams } from "./nav.js";
     buildSpec(generateRandomSpec());
   }
 
-  // Load a saved level. Older levels stored a square "facing" instead of a wall
-  // edge index — migrate those so they still play.
   function loadLevel(level: Level): void {
     const shape = level.shape || "square";
     buildSpec({
@@ -227,14 +183,13 @@ import { gotoView, routeParams } from "./nav.js";
       rows: level.rows,
       cols: level.cols,
       slots: level.slots.map((s) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) })),
-      boxes: level.boxes.map((b) => ({ r: b.r, c: b.c, red: !!b.red })),
+      boxes: level.boxes.map((b) => ({ r: b.r, c: b.c, red: !!b.red, tag: b.tag })),
       holes: (level.holes || []).map((h) => ({ r: h.r, c: h.c })),
       solids: (level.solids || []).map((s) => ({ r: s.r, c: s.c })),
     });
   }
 
-  // Square facing→wall migration: wall is opposite the front. Edge order for
-  // square is top(0), right(1), bottom(2), left(3).
+  // Migrates legacy square "facing" values to a wall edge index (top0 right1 bottom2 left3).
   const FACING_TO_WALL: Record<string, number> = { up: 2, down: 0, left: 1, right: 3 };
   function slotWall(s: { wall?: number | null; facing?: string }, shape: string): number {
     if (Number.isInteger(s.wall)) return s.wall as number;
@@ -242,7 +197,6 @@ import { gotoView, routeParams } from "./nav.js";
     return 0;
   }
 
-  // Draw a slot: colour its polygon and lay a thick bar along its wall edge.
   function decorateSlot(slot: Slot): void {
     const poly = slot.el;
     poly.classList.add("slot");
@@ -266,28 +220,31 @@ import { gotoView, routeParams } from "./nav.js";
       e.stopPropagation();
       onBoxClick(box);
     });
+    el.addEventListener("mouseenter", () => gridHighlight(key(box.r, box.c), true));
+    el.addEventListener("mouseleave", () => gridHighlight(key(box.r, box.c), false));
+    if (box.tag) {
+      const tagEl = document.createElement("span");
+      tagEl.className = "box-tag";
+      tagEl.textContent = gridCoordOf(key(box.tag.r, box.tag.c));
+      el.appendChild(tagEl);
+    }
     return el;
   }
 
-  // Position a box centred on its current cell.
   function positionBox(box: Box): void {
     const { cx, cy } = centerOf(box.r, box.c);
     const h = tiling.boxSize / 2;
-    box.el.style.transform = `translate(${cx - h}px, ${cy - h}px)`;
+    box.el.style.transform = `translate(${cx - h + labelPad.x}px, ${cy - h + labelPad.y}px)`;
   }
 
-  // Translate string for a box centred on cell (r,c) — used in animation keyframes.
   function boxTransform(r: number, c: number): string {
     const { cx, cy } = centerOf(r, c);
     const h = tiling.boxSize / 2;
-    return `translate(${cx - h}px, ${cy - h}px)`;
+    return `translate(${cx - h + labelPad.x}px, ${cy - h + labelPad.y}px)`;
   }
 
-  /* ---------- Occupancy / obstacles ---------- */
-
-  // Cells blocked for pathfinding. Cell obstacles (invisible holes + visible
-  // solids) block every box. Other static boxes block a normal box too, but a
-  // red box passes through them. Moving boxes never block (they pass through).
+  // Holes and solids block every box; static boxes block only non-red movers.
+  // Moving boxes never block (they pass through).
   function blockedSet(movingBox: Box): Set<string> {
     const blocked = new Set(holes);
     for (const k of solids) blocked.add(k);
@@ -301,12 +258,6 @@ import { gotoView, routeParams } from "./nav.js";
     return blocked;
   }
 
-  /* ---------- Pathfinding (BFS) ---------- */
-
-  // Find shortest path from box to (tr,tc). For normal boxes slot walls are
-  // impassable edges, so a slot can only be entered from its front or sides;
-  // red boxes ignore walls. Returns array of {r,c} incl. start & target, or
-  // null if unreachable.
   function findPath(box: Box, tr: number, tc: number): RC[] | null {
     const blocked = blockedSet(box);
     const start = key(box.r, box.c);
@@ -344,9 +295,6 @@ import { gotoView, routeParams } from "./nav.js";
     return path;
   }
 
-  /* ---------- Movement / animation ---------- */
-
-  // slot may be a slot object (final destination) or null for a neutral cell.
   function moveBoxAlong(box: Box, path: RC[], slot: Slot | null): void {
     box.state = "moving";
     box.el.classList.add("moving");
@@ -358,7 +306,6 @@ import { gotoView, routeParams } from "./nav.js";
       box.target = slot;
     }
 
-    // Web Animations API: trace the whole path (cell centre to cell centre).
     const keyframes = path.map((p) => ({ transform: boxTransform(p.r, p.c) }));
     const duration = Math.max(STEP_MS, (path.length - 1) * STEP_MS);
 
@@ -368,7 +315,7 @@ import { gotoView, routeParams } from "./nav.js";
       const end = path[path.length - 1];
       box.r = end.r;
       box.c = end.c;
-      positionBox(box); // pin final position
+      positionBox(box);
       box.el.classList.remove("moving");
 
       if (slot) {
@@ -379,7 +326,7 @@ import { gotoView, routeParams } from "./nav.js";
         slot.el.classList.remove("reserved");
         slot.el.classList.add("filled");
       } else {
-        box.state = "idle"; // parked on a neutral cell — still needs sorting
+        box.state = "idle";
       }
 
       updatePlacedCount();
@@ -387,11 +334,9 @@ import { gotoView, routeParams } from "./nav.js";
     };
   }
 
-  /* ---------- Interaction ---------- */
-
   function onBoxClick(box: Box): void {
     if (box.state === "moving") return;
-    if (box.state === "placed") liftBox(box); // lift it back off its slot
+    if (box.state === "placed") liftBox(box);
     selectBox(box);
   }
 
@@ -426,13 +371,12 @@ import { gotoView, routeParams } from "./nav.js";
     if (!selectedBox) return;
     const box = selectedBox;
 
-    if (solids.has(key(r, c))) return; // solid block — not a destination
+    if (solids.has(key(r, c))) return;
 
     const slotCell = slots.find((s) => s.r === r && s.c === c) || null;
-    // Red boxes never claim a slot — they just park on the cell.
-    const slot = box.red ? null : slotCell;
+    const slot = box.red ? null : slotCell; // red boxes never claim a slot
 
-    if (box.r === r && box.c === c) return; // its own cell
+    if (box.r === r && box.c === c) return;
 
     const occupied = boxes.some((b) => b !== box && b.state !== "moving" && b.r === r && b.c === c);
     if (occupied) {
@@ -467,12 +411,9 @@ import { gotoView, routeParams } from "./nav.js";
     );
   }
 
-  /* ---------- UI helpers ---------- */
-
-  // Pop an angry red emoji over a box to signal an impossible move.
   function showAngry(box: Box): void {
     if (!box) return;
-    box.el.querySelector(".angry")?.remove(); // restart if already showing
+    box.el.querySelector(".angry")?.remove();
     const bubble = document.createElement("div");
     bubble.className = "angry";
     bubble.textContent = "😡";
@@ -489,23 +430,25 @@ import { gotoView, routeParams } from "./nav.js";
     statusEl.className = "status" + (kind ? " " + kind : "");
   }
 
-  // Only green boxes are goals; red boxes are free-roaming and never counted.
   function goalBoxes(): Box[] { return boxes.filter((b) => !b.red); }
 
+  function isSatisfied(b: Box): boolean {
+    if (b.state !== "placed") return false;
+    if (!b.tag) return true;
+    return !!b.target && b.target.r === b.tag.r && b.target.c === b.tag.c;
+  }
+
   function updatePlacedCount(): void {
-    placedEl.textContent = String(goalBoxes().filter((b) => b.state === "placed").length);
+    placedEl.textContent = String(goalBoxes().filter(isSatisfied).length);
   }
 
   function checkWin(): void {
     const goals = goalBoxes();
-    const allPlaced = goals.length > 0 && goals.every((b) => b.state === "placed");
-    if (allPlaced) {
+    if (goals.length > 0 && goals.every(isSatisfied)) {
       setStatus("All boxes sorted!", "ok");
       winEl.classList.remove("hidden");
     }
   }
-
-  /* ---------- Sidebar config ---------- */
 
   const inputs = {
     rows: document.getElementById("cfg-rows") as HTMLInputElement,
@@ -524,7 +467,7 @@ import { gotoView, routeParams } from "./nav.js";
   function cap(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
   function saveConfig(): void {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(CONFIG)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(CONFIG)); } catch (e) {}
   }
 
   function loadConfig(): void {
@@ -536,16 +479,16 @@ import { gotoView, routeParams } from "./nav.js";
         if (typeof saved[k] === "number" && saved[k] >= 0) (CONFIG as any)[k] = saved[k];
       }
       if (Geometry.SHAPES.includes(saved.shape)) CONFIG.shape = saved.shape;
-    } catch (e) { /* corrupt / unavailable — keep defaults */ }
+    } catch (e) {}
   }
 
-  // Read the sidebar, clamp to sane ranges, and sync values back into the UI.
+  // Fill the board in priority order (slots, boxes, reds, solids), each capped
+  // by the cells left, then sync the clamped values back into the inputs.
   function readConfig(): void {
     const rows = clamp(parseInt(inputs.rows.value, 10) || CONFIG.rows, ...LIMITS.rows);
     const cols = clamp(parseInt(inputs.cols.value, 10) || CONFIG.cols, ...LIMITS.cols);
     const capacity = rows * cols;
 
-    // Fill the board in priority order, each capped by what's left of the grid.
     let slotN = Math.max(0, parseInt(inputs.slots.value, 10) || 0);
     let boxN = Math.max(0, parseInt(inputs.boxes.value, 10) || 0);
     let redN = Math.max(0, parseInt(inputs.reds.value, 10) || 0);
@@ -587,8 +530,6 @@ import { gotoView, routeParams } from "./nav.js";
     newGame();
   }
 
-  /* ---------- Level picker ---------- */
-
   const picker = document.getElementById("level-picker") as HTMLSelectElement;
   const editLink = document.getElementById("edit-link") as HTMLAnchorElement;
   let currentLevelId: string | null = null; // null = random game
@@ -610,7 +551,6 @@ import { gotoView, routeParams } from "./nav.js";
     updateEditLink();
   }
 
-  // Point the Edit link at the selected level (or a blank editor for random).
   function updateEditLink(): void {
     if (currentLevelId) {
       editLink.href = "level-editor.html?edit=" + encodeURIComponent(currentLevelId);
@@ -628,12 +568,11 @@ import { gotoView, routeParams } from "./nav.js";
     gotoView("editor", currentLevelId ? { edit: currentLevelId } : undefined);
   });
 
-  // Start whatever the picker currently points at (custom level or random).
   function startSelected(): void {
     if (currentLevelId) {
       const lvl = Levels.get(currentLevelId);
       if (lvl) { loadLevel(lvl); return; }
-      currentLevelId = null; // vanished — fall back to random
+      currentLevelId = null;
       picker.value = "";
     }
     newGame();
@@ -644,8 +583,6 @@ import { gotoView, routeParams } from "./nav.js";
     updateEditLink();
     startSelected();
   });
-
-  /* ---------- Boot ---------- */
 
   loadConfig();
 
@@ -670,18 +607,15 @@ import { gotoView, routeParams } from "./nav.js";
 
   readConfig();
 
-  // Deep link: ?level=<id> (or #play?level=<id>) auto-loads that saved level.
   const urlLevel = routeParams().get("level");
   if (urlLevel && Levels.get(urlLevel)) currentLevelId = urlLevel;
 
   populatePicker();
   startSelected();
 
-  // If a levels file was linked in the editor and the browser still grants
-  // access silently, pull it so the picker reflects it (else use the cache).
   if (Levels.fs && Levels.fs.supported) {
     Levels.fs.reconnect().then((st) => {
       if (st && st.ready) populatePicker();
-    }).catch(() => { /* ignore — cached levels remain */ });
+    }).catch(() => {});
   }
 })();

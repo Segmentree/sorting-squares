@@ -240,6 +240,51 @@ button:active { transform: translateY(1px); }
 .board-svg .cell.slot.filled { stroke-dasharray: none; }
 .board-svg .cell.slot.reserved { stroke: #b9952a; }
 
+/* Spreadsheet-style row/column labels in the board gutter */
+.board-svg .grid-label {
+  fill: #8893a8;
+  font: 600 13px "Segoe UI", system-ui, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+  transition: fill 0.1s ease;
+}
+.board-svg .grid-label.coord-hl {
+  fill: var(--accent);
+  font-weight: 800;
+}
+
+/* Dotted link from a tagged box to the slot it must reach */
+.board-svg .tag-line {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 7;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Coordinate shown on a tagged green box (play + editor) */
+.board .box-tag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font: 800 11px "Segoe UI", system-ui, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* The box armed for tagging in the editor */
+.ed-box.armed {
+  outline: 3px dashed var(--accent);
+  outline-offset: 2px;
+}
+
 /* The dark wall bar along a slot's blocked edge */
 .board-svg .wall-line {
   stroke: var(--wall);

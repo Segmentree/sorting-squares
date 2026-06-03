@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sorting Squares — Level Editor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23ffd233'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -45,11 +46,12 @@
         <button class="tool" data-tool="box">🟩 Box</button>
         <button class="tool" data-tool="red">🟥 Red</button>
         <button class="tool" data-tool="slot">🟨 Slot</button>
+        <button class="tool" data-tool="tag">🏷️ Tag</button>
         <button class="tool" data-tool="solid">🟫 Solid</button>
         <button class="tool" data-tool="hole">⬛ Hole</button>
         <button class="tool" data-tool="erase">⌫ Erase</button>
       </div>
-      <p class="hint">Click a cell to place. Click a slot again to rotate its open side (the dark wall marks the blocked back). A <b>Red</b> box roams free — it slips through other boxes and slot walls and never needs a slot (only holes and solids stop it). A <b>Solid</b> is a visible block nothing can pass. A <b>Hole</b> is invisible in‑game and blocks movement (shown hatched here).</p>
+      <p class="hint">Click a cell to place. Click a slot again to rotate its open side (the dark wall marks the blocked back). With <b>Tag</b>, click a green box then a yellow slot to require that box to finish on that exact slot (a dotted line shows the link; click the box again to clear). A <b>Red</b> box roams free — it slips through other boxes and slot walls and never needs a slot (only holes and solids stop it). A <b>Solid</b> is a visible block nothing can pass. A <b>Hole</b> is invisible in‑game and blocks movement (shown hatched here).</p>
     </div>
 
     <div class="btn-col">
