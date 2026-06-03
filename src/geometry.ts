@@ -12,7 +12,7 @@
 interface Pt { x: number; y: number; }
 type Shape = "square" | "pentagon" | "hexagon";
 
-interface Cell {
+export interface Cell {
   key: string;
   r: number;
   c: number;
@@ -39,7 +39,7 @@ interface TilingBase {
   neighborAt: NeighborAt;
 }
 
-interface Tiling extends TilingBase {
+export interface Tiling extends TilingBase {
   cellList: Cell[];
   boxSize: number;
   has(k: string): boolean;
@@ -49,7 +49,7 @@ interface Tiling extends TilingBase {
   validWalls(k: string): number[];
 }
 
-const Geometry = (() => {
+export const Geometry = (() => {
   const SQUARE = 50;   // square side, px
   const HEXR = 30;     // hexagon circumradius, px
   const PAD = 6;       // outer padding so edge walls aren't clipped
@@ -239,5 +239,3 @@ const Geometry = (() => {
 
   return { make, SHAPES: ["square", "pentagon", "hexagon"] as string[], SQUARE, HEXR };
 })();
-
-if (typeof module !== "undefined" && module.exports) module.exports = { Geometry };

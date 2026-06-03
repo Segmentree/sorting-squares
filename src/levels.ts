@@ -8,7 +8,7 @@
 interface Pos { r: number; c: number; }
 interface BoxDef { r: number; c: number; red?: boolean; } // red boxes pass through other boxes
 interface SlotDef { r: number; c: number; wall?: number | null; facing?: string; }
-interface Level {
+export interface Level {
   id: string | null;
   name: string;
   shape: string;
@@ -23,7 +23,7 @@ interface Level {
 type ValidateResult = { ok: true } | { ok: false; error: string };
 interface ImportResult { added: number; skipped: number; error?: string; }
 
-const Levels = (() => {
+export const Levels = (() => {
   const KEY = "sortingSquares.levels";
   const SHAPES = ["square", "pentagon", "hexagon"];
   const SIDES: Record<string, number> = { square: 4, pentagon: 5, hexagon: 6 };
@@ -301,6 +301,3 @@ const Levels = (() => {
     importJSON, exportLevel, exportAll, download, fs,
   };
 })();
-
-// Make available to CommonJS for headless tests (ignored in the browser).
-if (typeof module !== "undefined" && module.exports) module.exports = { Levels };

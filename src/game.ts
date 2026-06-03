@@ -4,10 +4,13 @@
  * Boxes find a path through empty cells; static boxes block the way, but
  * boxes that are currently moving do not (they simply pass through).
  *
- * Wrapped in an IIFE so its top-level names don't collide with editor.ts in the
- * shared (non-module) global scope. Shared globals it uses: Geometry, Levels,
- * gotoView, routeParams, and the Tiling/Cell/Level types.
+ * Entry module for the play page (loaded via <script type="module">). The IIFE
+ * is now just scoping sugar — module scope already isolates these names.
  */
+import { Geometry, type Tiling, type Cell } from "./geometry.js";
+import { Levels, type Level } from "./levels.js";
+import { gotoView, routeParams } from "./nav.js";
+
 (() => {
   type BoxState = "idle" | "moving" | "placed";
   interface Slot { r: number; c: number; wall: number; filled: boolean; reserved: boolean; el: SVGPolygonElement; wallLine?: SVGLineElement; }
