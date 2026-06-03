@@ -5,7 +5,9 @@ Each slot has a dark wall on one edge — boxes can only enter from an open side
 and they find a path around static boxes (boxes that are mid-move pass through
 each other). The game is won when every box sits on a slot.
 
-Pure HTML/CSS/JS — no dependencies, no backend.
+Plain HTML/CSS + TypeScript compiled to native ES modules — no runtime
+dependencies, no bundler, no backend. Served as static files (locally or on
+GitHub Pages).
 
 ## Features
 
@@ -22,48 +24,58 @@ Pure HTML/CSS/JS — no dependencies, no backend.
   rotate each slot's wall), save them, and export/import as JSON.
 - **Random games** — configurable grid size, shape, green/red box, slot and
   solid-block counts.
-- **Durable level storage** — `localStorage` is the in-session cache (and now
-  persists across rebuilds because the build writes a **stable** filename,
-  `dist/sorting-squares.html`, rather than a per-build timestamped one). For a
-  copy that survives clearing the browser or switching browsers, the editor can
-  bind your library to a real JSON file (**Save to file… / Open levels file…**)
-  via the File System Access API; the handle is remembered in IndexedDB so a new
-  session reconnects with one click and edits autosave to the file. Available in
-  Chromium browsers (works in both the standalone pages and the single-file
-  build, since the bundle's `srcdoc` iframe is same-origin); other browsers fall
-  back to Export / Import. Settings also persist in `localStorage`.
+- **Durable level storage** — `localStorage` is the working store, keyed to the
+  site's origin. Because the game is served from one stable URL (GitHub Pages),
+  saved levels survive every new deploy. For a copy that also survives clearing
+  the browser or switching browsers, the editor can bind your library to a real
+  JSON file (**Save to file… / Open levels file…**) via the File System Access
+  API; the handle is remembered in IndexedDB so a new session reconnects with one
+  click and edits autosave to the file. Available in Chromium browsers; others
+  fall back to Export / Import. Settings also persist in `localStorage`.
 
 ## Run it
 
-The source is **TypeScript** (in `src/`), compiled to plain JS — no runtime
-dependencies. Install once, then build:
+The source is **TypeScript** (in `src/`), compiled to native ES modules in
+`js/`. Because ES modules don't load over `file://`, run it through the bundled
+local server:
 
 ```sh
 npm install
-npm run build      # tsc -> js/, then bundles a single self-contained HTML file
+npm run dev        # compile once (tsc) + start http://localhost:8000
 ```
 
-- `npm run build` compiles `src/*.ts` to `js/*.js` and produces
-  `dist/sorting-squares-<timestamp>.html` — both the game and the editor bundled
-  into one file via an `<iframe srcdoc>` router. Open it directly in any browser.
-- After building, you can also just open `index.html` (it loads `js/*.js`).
-- `npm run typecheck` type-checks without emitting; `npm run watch` recompiles
-  on save (handy with a static file server for live dev).
+- Open **http://localhost:8000/** to play, **/level-editor.html** to edit.
+- For live recompiles: `npm run watch` (tsc in watch mode) in one terminal and
+  `npm run serve` in another, then refresh the browser.
+- `npm run build` compiles `src/*.ts` → `js/*.js`; `npm run typecheck`
+  type-checks without emitting.
 
-The compiler is configured as non-module (`tsconfig.json`), so each file emits a
-classic global `<script>` — matching the runtime, which uses no bundler/imports.
+The compiler emits **ES modules** (`tsconfig.json`: `module: ESNext`); each page
+loads a single entry module (`index.html` → `js/game.js`, `level-editor.html` →
+`js/editor.js`) that imports the rest. Import specifiers use explicit `.js`
+extensions so the browser resolves them natively — no bundler.
+
+## Deploy
+
+Pushing to `main` triggers `.github/workflows/deploy-pages.yml`, which compiles
+and publishes the pages to GitHub Pages at
+<https://segmentree.github.io/sorting-squares/>. Hosting at one stable URL is
+what lets players keep their saved levels across every deploy (see *Durable
+level storage* above).
 
 ## Project layout
 
 | Path | Purpose |
 | --- | --- |
-| `index.html` / `level-editor.html` | Play and editor pages (load `js/*.js`) |
-| `src/game.ts` | Game logic, rendering, animation, pathfinding |
-| `src/editor.ts` | Level editor logic |
+| `index.html` / `level-editor.html` | Play and editor pages (each loads one entry module) |
+| `src/game.ts` | Game logic, rendering, animation, pathfinding (play entry) |
+| `src/editor.ts` | Level editor logic (editor entry) |
 | `src/geometry.ts` | Tiling abstraction (square / pentagon / hexagon) + types |
-| `src/levels.ts` | Level format, storage, JSON import/export |
-| `src/nav.ts` | Navigation helper (two-file dev mode and single-file build) |
+| `src/levels.ts` | Level format, storage (localStorage + File System Access), JSON import/export |
+| `src/nav.ts` | Navigation helper between the play and editor pages |
+| `src/globals.d.ts` | Ambient types (File System Access API) |
 | `style.css` | Styles |
-| `build.ts` | Bundles both pages into one standalone HTML file (run by Node's type-stripping) |
-| `tsconfig.json` | TypeScript config |
-| `js/`, `dist/` | Build outputs (git-ignored) |
+| `serve.mjs` | Zero-dependency local static server (`npm run serve`) |
+| `.github/workflows/deploy-pages.yml` | Build + deploy to GitHub Pages on push to `main` |
+| `tsconfig.json` | TypeScript config (ES modules) |
+| `js/` | Compiled output (git-ignored) |

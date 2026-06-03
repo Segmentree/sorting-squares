@@ -15,7 +15,7 @@ function inEmbeddedView(): boolean {
 }
 
 // Params for the current view (works in both modes).
-function routeParams(): URLSearchParams {
+export function routeParams(): URLSearchParams {
   let qs = "";
   if (inEmbeddedView()) {
     try { qs = (window.parent.location.hash.split("?")[1]) || ""; } catch (e) { qs = ""; }
@@ -26,7 +26,7 @@ function routeParams(): URLSearchParams {
 }
 
 // Switch to another view ("play" | "editor"), optionally with params.
-function gotoView(view: ViewName, params?: Record<string, string>): void {
+export function gotoView(view: ViewName, params?: Record<string, string>): void {
   const qs = params && Object.keys(params).length
     ? "?" + new URLSearchParams(params).toString()
     : "";

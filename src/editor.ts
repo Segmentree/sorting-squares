@@ -2,9 +2,12 @@
  * you place boxes, slots (clicking a slot rotates the walled edge) and holes,
  * and saves levels via the shared Levels module. Cells render as SVG polygons.
  *
- * Wrapped in an IIFE so its top-level names don't collide with game.ts in the
- * shared (non-module) global scope.
+ * Entry module for the editor page (loaded via <script type="module">).
  */
+import { Geometry, type Tiling } from "./geometry.js";
+import { Levels, type Level } from "./levels.js";
+import { gotoView, routeParams } from "./nav.js";
+
 (() => {
   const SVG_NS = "http://www.w3.org/2000/svg";
 
