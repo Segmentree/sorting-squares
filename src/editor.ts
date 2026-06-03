@@ -1,20 +1,12 @@
-/* Level editor. Builds an editable tiling (square / pentagon / hexagon), lets
- * you place boxes, slots (clicking a slot rotates the walled edge) and holes,
- * and saves levels via the shared Levels module. Cells render as SVG polygons.
- *
- * Entry module for the editor page (loaded via <script type="module">).
- */
 import { Geometry, type Tiling } from "./geometry.js";
 import { Levels, type Level } from "./levels.js";
 import { gotoView, routeParams } from "./nav.js";
+import { renderGrid } from "./board.js";
 
 (() => {
   const SVG_NS = "http://www.w3.org/2000/svg";
 
-  // A cell's editor state: empty, a green box, a red box (passes through other
-  // boxes), an invisible hole, a visible solid block, or a slot (the number is
-  // its walled edge index).
-  type CellVal = null | "box" | "red" | "hole" | "solid" | number;
+  type CellVal = null | "box" | "red" | "hole" | "solid" | number; // number = slot's walled edge
 
   const boardEl = document.getElementById("board")!;
   const statusEl = document.getElementById("ed-status")!;
@@ -32,7 +24,11 @@ import { gotoView, routeParams } from "./nav.js";
   let polyEls = new Map<string, SVGPolygonElement>();
   let boardSvg: SVGSVGElement;
   let tool = "box";
-  let currentId: string | null = null; // id of the level being edited (null = new/unsaved)
+  let currentId: string | null = null; // null = new/unsaved
+  let boxTags = new Map<string, string>(); // box cell key -> target slot cell key
+  let tagArmed: string | null = null;
+  let pad = { x: 0, y: 0 };
+  let gridCoordOf: (cellKey: string) => string = () => "";
 
   function key(r: number, c: number): string { return r + "," + c; }
   function clamp(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, v)); }
@@ -41,40 +37,60 @@ import { gotoView, routeParams } from "./nav.js";
     return Array.from({ length: r }, () => Array.from({ length: c }, () => null as CellVal));
   }
 
-  /* ---------- Grid (SVG) ---------- */
-
   function buildGrid(): void {
     tiling = Geometry.make(shape, rows, cols);
-    // Pentagon rounds rows/cols up to even — sync the model to match.
-    if (tiling.rows !== rows || tiling.cols !== cols) {
+    if (tiling.rows !== rows || tiling.cols !== cols) { // pentagon rounds up to even
       const next = emptyModel(tiling.rows, tiling.cols);
       for (let r = 0; r < Math.min(rows, tiling.rows); r++)
         for (let c = 0; c < Math.min(cols, tiling.cols); c++) next[r][c] = model[r][c];
       rows = tiling.rows; cols = tiling.cols; model = next;
       rowsInput.value = String(rows); colsInput.value = String(cols);
     }
-    boardEl.innerHTML = "";
-    boardEl.style.width = tiling.width + "px";
-    boardEl.style.height = tiling.height + "px";
-    polyEls = new Map();
+    const view = renderGrid(boardEl, tiling, shape, { holes: holeKeys(), drawHoles: true, onCellClick, hover: true });
+    boardSvg = view.svg;
+    polyEls = view.cellEls;
+    pad = view.pad;
+    gridCoordOf = view.coordOf;
+    refresh();
+  }
 
-    const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("width", String(tiling.width));
-    svg.setAttribute("height", String(tiling.height));
-    svg.setAttribute("viewBox", `0 0 ${tiling.width} ${tiling.height}`);
-    svg.classList.add("board-svg");
-    boardEl.appendChild(svg);
-    boardSvg = svg;
+  function holeKeys(): Set<string> {
+    const s = new Set<string>();
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        if (model[r][c] === "hole") s.add(key(r, c));
+    return s;
+  }
 
-    for (const cell of tiling.cellList) {
-      const poly = document.createElementNS(SVG_NS, "polygon");
-      poly.setAttribute("points", cell.corners.map((p) => `${p.x},${p.y}`).join(" "));
-      poly.setAttribute("class", "cell" + ((cell.r + cell.c) % 2 ? " alt" : ""));
-      poly.addEventListener("click", () => onCellClick(cell.r, cell.c));
-      svg.appendChild(poly);
-      polyEls.set(cell.key, poly);
+  function reconcileTags(): void {
+    for (const [boxKey, slotKey] of [...boxTags]) {
+      const [br, bc] = boxKey.split(",").map(Number);
+      const [sr, sc] = slotKey.split(",").map(Number);
+      if (model[br]?.[bc] !== "box" || !isSlot(model[sr]?.[sc])) boxTags.delete(boxKey);
     }
+    if (tagArmed) {
+      const [ar, ac] = tagArmed.split(",").map(Number);
+      if (model[ar]?.[ac] !== "box") tagArmed = null;
+    }
+  }
+
+  function renderConnectors(): void {
+    boardSvg.querySelectorAll(".tag-line").forEach((l) => l.remove());
+    for (const [boxKey, slotKey] of boxTags) {
+      const from = tiling.get(boxKey), to = tiling.get(slotKey);
+      if (!from || !to) continue;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(from.cx)); line.setAttribute("y1", String(from.cy));
+      line.setAttribute("x2", String(to.cx)); line.setAttribute("y2", String(to.cy));
+      line.setAttribute("class", "tag-line");
+      boardSvg.appendChild(line);
+    }
+  }
+
+  function refresh(): void {
+    reconcileTags();
     for (const cell of tiling.cellList) renderCell(cell.r, cell.c);
+    renderConnectors();
     updateCounts();
   }
 
@@ -88,16 +104,23 @@ import { gotoView, routeParams } from "./nav.js";
     if (cell._boxEl) { cell._boxEl.remove(); cell._boxEl = null; }
 
     if (v === "hole") {
-      poly.classList.add("hole"); // invisible in-game; hatched here
+      poly.classList.add("hole");
     } else if (v === "solid") {
-      poly.classList.add("solid"); // visible, impassable for every box
+      poly.classList.add("solid");
     } else if (v === "box" || v === "red") {
       const b = document.createElement("div");
       b.className = "ed-box" + (v === "red" ? " red" : "");
       const s = tiling.boxSize, h = s / 2;
       b.style.width = s + "px";
       b.style.height = s + "px";
-      b.style.transform = `translate(${cell.cx - h}px, ${cell.cy - h}px)`;
+      b.style.transform = `translate(${cell.cx - h + pad.x}px, ${cell.cy - h + pad.y}px)`;
+      if (v === "box" && boxTags.has(key(r, c))) {
+        const tagEl = document.createElement("span");
+        tagEl.className = "box-tag";
+        tagEl.textContent = gridCoordOf(boxTags.get(key(r, c))!);
+        b.appendChild(tagEl);
+      }
+      if (tagArmed === key(r, c)) b.classList.add("armed");
       boardEl.appendChild(b);
       cell._boxEl = b;
     } else if (isSlot(v)) {
@@ -115,7 +138,18 @@ import { gotoView, routeParams } from "./nav.js";
 
   function onCellClick(r: number, c: number): void {
     const v = model[r][c];
-    if (tool === "erase") {
+    if (tool === "tag") {
+      const k = key(r, c);
+      if (v === "box") {
+        if (tagArmed === k) { boxTags.delete(k); tagArmed = null; }
+        else tagArmed = k;
+      } else if (isSlot(v) && tagArmed) {
+        boxTags.set(tagArmed, k);
+        tagArmed = null;
+      } else {
+        tagArmed = null;
+      }
+    } else if (tool === "erase") {
       model[r][c] = null;
     } else if (tool === "hole") {
       model[r][c] = v === "hole" ? null : "hole";
@@ -133,8 +167,7 @@ import { gotoView, routeParams } from "./nav.js";
         model[r][c] = walls.length ? walls[0] : 0;
       }
     }
-    renderCell(r, c);
-    updateCounts();
+    refresh();
   }
 
   function updateCounts(): void {
@@ -149,8 +182,6 @@ import { gotoView, routeParams } from "./nav.js";
     slotCountEl.textContent = String(s);
   }
 
-  /* ---------- Size / shape ---------- */
-
   function applySize(): void {
     const nr = clamp(parseInt(rowsInput.value, 10) || rows, Levels.SIZE_MIN, Levels.SIZE_MAX);
     const nc = clamp(parseInt(colsInput.value, 10) || cols, Levels.SIZE_MIN, Levels.SIZE_MAX);
@@ -158,9 +189,8 @@ import { gotoView, routeParams } from "./nav.js";
     const next = emptyModel(nr, nc);
     for (let r = 0; r < Math.min(rows, nr); r++)
       for (let c = 0; c < Math.min(cols, nc); c++) {
-        // Drop slot walls that no longer exist if the shape changed (fewer sides).
         let v = model[r][c];
-        if (isSlot(v) && v >= Levels.SIDES[ns]) v = 0;
+        if (isSlot(v) && v >= Levels.SIDES[ns]) v = 0; // fewer sides now — drop invalid wall
         next[r][c] = v;
       }
     rows = nr; cols = nc; shape = ns; model = next;
@@ -168,15 +198,17 @@ import { gotoView, routeParams } from "./nav.js";
     buildGrid();
   }
 
-  /* ---------- Level <-> model ---------- */
-
   function collectLevel(): Level {
     const slots: Level["slots"] = [], boxes: Level["boxes"] = [];
     const holes: Level["holes"] = [], solids: Level["solids"] = [];
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
         const v = model[r][c];
-        if (v === "box") boxes.push({ r, c });
+        if (v === "box") {
+          const t = boxTags.get(key(r, c));
+          if (t) { const [tr, tc] = t.split(",").map(Number); boxes.push({ r, c, tag: { r: tr, c: tc } }); }
+          else boxes.push({ r, c });
+        }
         else if (v === "red") boxes.push({ r, c, red: true });
         else if (v === "hole") holes.push({ r, c });
         else if (v === "solid") solids.push({ r, c });
@@ -197,7 +229,11 @@ import { gotoView, routeParams } from "./nav.js";
       const w = Number.isInteger(s.wall) ? (s.wall as number) : 0;
       model[s.r][s.c] = ((w % sides) + sides) % sides;
     }
-    for (const b of level.boxes) model[b.r][b.c] = b.red ? "red" : "box";
+    boxTags = new Map();
+    for (const b of level.boxes) {
+      model[b.r][b.c] = b.red ? "red" : "box";
+      if (b.tag) boxTags.set(key(b.r, b.c), key(b.tag.r, b.tag.c));
+    }
     for (const h of (level.holes || [])) model[h.r][h.c] = "hole";
     for (const s of (level.solids || [])) model[s.r][s.c] = "solid";
     currentId = level.id;
@@ -206,8 +242,6 @@ import { gotoView, routeParams } from "./nav.js";
     buildGrid();
     setStatus(`Loaded "${level.name}". Editing — Save to update it.`, "ok");
   }
-
-  /* ---------- Actions ---------- */
 
   function saveCurrent(): void {
     const level = collectLevel();
@@ -218,9 +252,9 @@ import { gotoView, routeParams } from "./nav.js";
       setStatus("Add at least one green box and one slot before saving.", "error");
       return;
     }
-    currentId = Levels.save(level); // assigns id on first save
+    currentId = Levels.save(level);
     refreshList();
-    void syncFile(); // mirror to the linked file, if any
+    void syncFile();
     setStatus(`Saved "${level.name}".`, "ok");
   }
 
@@ -298,8 +332,6 @@ import { gotoView, routeParams } from "./nav.js";
     statusEl.className = "ed-status" + (kind ? " " + kind : "");
   }
 
-  /* ---------- Wiring ---------- */
-
   function selectTool(t: string): void {
     tool = t;
     for (const b of document.querySelectorAll<HTMLElement>("#ed-tools .tool"))
@@ -331,20 +363,17 @@ import { gotoView, routeParams } from "./nav.js";
     (e.target as HTMLInputElement).value = ""; // allow re-importing the same file
   });
 
-  // "▶ Play" link → switch to the play view.
   document.getElementById("play-link")!.addEventListener("click", (e) => {
     e.preventDefault();
     gotoView("play");
   });
-
-  /* ---------- Durable file (File System Access) ---------- */
 
   const fsGroup = document.getElementById("ed-fs")!;
   const fsSaveBtn = document.getElementById("ed-fs-save")!;
   const fsOpenBtn = document.getElementById("ed-fs-open")!;
   const fsReconnectBtn = document.getElementById("ed-fs-reconnect") as HTMLButtonElement;
   const fsStatusEl = document.getElementById("ed-fs-status")!;
-  let fsReady = false; // confirmed read/write access to the linked file this session
+  let fsReady = false;
 
   function renderFsStatus(): void {
     const name = Levels.fs.linkedName();
@@ -357,7 +386,6 @@ import { gotoView, routeParams } from "./nav.js";
     }
   }
 
-  // Mirror the current library to the linked file after a change.
   async function syncFile(): Promise<void> {
     if (!Levels.fs.linkedName()) return;
     try {
@@ -366,7 +394,7 @@ import { gotoView, routeParams } from "./nav.js";
         fsReconnectBtn.hidden = true;
         renderFsStatus();
       }
-    } catch (e) { /* refused or failed — the localStorage cache still holds it */ }
+    } catch (e) {}
   }
 
   fsSaveBtn.addEventListener("click", async () => {
@@ -378,7 +406,7 @@ import { gotoView, routeParams } from "./nav.js";
         renderFsStatus();
         setStatus(`Saved your levels to ${name}.`, "ok");
       }
-    } catch (e) { /* picker cancelled */ }
+    } catch (e) {}
   });
 
   fsOpenBtn.addEventListener("click", async () => {
@@ -391,7 +419,7 @@ import { gotoView, routeParams } from "./nav.js";
         renderFsStatus();
         setStatus(`Loaded ${res.loaded} level(s) from ${res.name}.`, "ok");
       }
-    } catch (e) { /* picker cancelled */ }
+    } catch (e) {}
   });
 
   fsReconnectBtn.addEventListener("click", async () => {
@@ -404,7 +432,7 @@ import { gotoView, routeParams } from "./nav.js";
         renderFsStatus();
         setStatus(`Reconnected ${res.name} — ${res.loaded} level(s) loaded.`, "ok");
       }
-    } catch (e) { /* refused */ }
+    } catch (e) {}
   });
 
   function initDurableFile(): void {
@@ -415,10 +443,8 @@ import { gotoView, routeParams } from "./nav.js";
       if (st.ready) { fsReady = true; refreshList(); }
       else { fsReconnectBtn.hidden = false; fsReconnectBtn.textContent = `🔗 Reconnect ${st.name}`; }
       renderFsStatus();
-    }).catch(() => { /* ignore */ });
+    }).catch(() => {});
   }
-
-  /* ---------- Boot ---------- */
 
   rowsInput.value = String(rows);
   colsInput.value = String(cols);
@@ -429,7 +455,6 @@ import { gotoView, routeParams } from "./nav.js";
   refreshList();
   initDurableFile();
 
-  // If arriving with ?edit=<id> (or #editor?edit=<id>), open that level.
   const editId = routeParams().get("edit");
   if (editId) {
     const lvl = Levels.get(editId);

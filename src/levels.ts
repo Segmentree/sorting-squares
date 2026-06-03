@@ -1,12 +1,5 @@
-/* Shared level format + storage, used by both the play page and the editor.
- * Exposed as a global `Levels` (no ES modules, so it works from file://).
- *
- * Legacy levels stored a square "facing" (up/down/left/right) instead of a
- * wall edge index; those are still accepted and migrated by the game loader.
- */
-
 interface Pos { r: number; c: number; }
-interface BoxDef { r: number; c: number; red?: boolean; } // red boxes pass through other boxes
+interface BoxDef { r: number; c: number; red?: boolean; tag?: Pos; }
 interface SlotDef { r: number; c: number; wall?: number | null; facing?: string; }
 export interface Level {
   id: string | null;
@@ -17,7 +10,7 @@ export interface Level {
   slots: SlotDef[];
   boxes: BoxDef[];
   holes: Pos[];   // invisible impassable cells
-  solids: Pos[];  // visible impassable cells (block every box, even red)
+  solids: Pos[];  // visible impassable cells
   updatedAt: number;
 }
 type ValidateResult = { ok: true } | { ok: false; error: string };
@@ -37,7 +30,7 @@ export const Levels = (() => {
     } catch (e) { return []; }
   }
   function persist(list: Level[]): void {
-    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) {}
   }
 
   function uid(): string {
@@ -59,7 +52,7 @@ export const Levels = (() => {
 
   function remove(id: string): void { persist(loadAll().filter((l) => l.id !== id)); }
 
-  // The wall edge index for a slot, migrating legacy square facings if needed.
+  // Legacy square levels stored a "facing" instead of a wall edge index.
   const FACING_TO_WALL: Record<string, number> = { up: 2, down: 0, left: 1, right: 3 };
   function slotWall(s: SlotDef, shape: string): number | null {
     if (isInt(s.wall, 0, SIDES[shape] - 1)) return s.wall as number;
@@ -67,7 +60,6 @@ export const Levels = (() => {
     return null;
   }
 
-  // Returns { ok: true } or { ok: false, error: "..." }.
   function validate(level: any): ValidateResult {
     if (!level || typeof level !== "object") return err("Not a level object.");
     const shape = level.shape || "square";
@@ -83,21 +75,24 @@ export const Levels = (() => {
     const seen = new Set<string>();
     for (const h of level.holes || []) {
       if (!isInt(h.r, 0, rows - 1) || !isInt(h.c, 0, cols - 1)) return err("A hole is out of bounds.");
-      seen.add(h.r + "," + h.c); // holes may not share a cell with a piece
+      seen.add(h.r + "," + h.c);
     }
     for (const s of level.solids || []) {
       if (!isInt(s.r, 0, rows - 1) || !isInt(s.c, 0, cols - 1)) return err("A solid is out of bounds.");
-      seen.add(s.r + "," + s.c); // solids may not share a cell with a piece
+      seen.add(s.r + "," + s.c);
     }
+    const slotKeys = new Set<string>();
     for (const s of level.slots) {
       if (!isInt(s.r, 0, rows - 1) || !isInt(s.c, 0, cols - 1)) return err("A slot is out of bounds.");
       if (slotWall(s, shape) == null) return err("A slot has an invalid wall.");
       const k = s.r + "," + s.c;
       if (seen.has(k)) return err("Two pieces share a cell.");
       seen.add(k);
+      slotKeys.add(k);
     }
     for (const b of level.boxes) {
       if (!isInt(b.r, 0, rows - 1) || !isInt(b.c, 0, cols - 1)) return err("A box is out of bounds.");
+      if (b.tag && !slotKeys.has(b.tag.r + "," + b.tag.c)) return err("A box tag must point to a slot.");
       const k = b.r + "," + b.c;
       if (seen.has(k)) return err("Two pieces share a cell.");
       seen.add(k);
@@ -105,21 +100,27 @@ export const Levels = (() => {
     return { ok: true };
   }
 
-  // Coerce an arbitrary parsed object into a clean level (or null if invalid).
   function normalize(obj: any): Level | null {
     if (!obj || typeof obj !== "object") return null;
     const shape = SHAPES.includes(obj.shape) ? obj.shape : "square";
+    const slots = Array.isArray(obj.slots)
+      ? obj.slots.map((s: SlotDef) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
+      : [];
+    const slotKeys = new Set(slots.map((s: SlotDef) => s.r + "," + s.c));
+    const boxes: BoxDef[] = Array.isArray(obj.boxes)
+      ? obj.boxes.map((b: BoxDef) => {
+          const box: BoxDef = { r: b.r, c: b.c };
+          if (b.red) box.red = true;
+          if (b.tag && slotKeys.has(b.tag.r + "," + b.tag.c)) box.tag = { r: b.tag.r, c: b.tag.c };
+          return box;
+        })
+      : [];
     const level: Level = {
       id: typeof obj.id === "string" ? obj.id : null,
       name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Untitled",
       shape,
       rows: obj.rows, cols: obj.cols,
-      slots: Array.isArray(obj.slots)
-        ? obj.slots.map((s: SlotDef) => ({ r: s.r, c: s.c, wall: slotWall(s, shape) }))
-        : [],
-      boxes: Array.isArray(obj.boxes)
-        ? obj.boxes.map((b: BoxDef) => (b.red ? { r: b.r, c: b.c, red: true } : { r: b.r, c: b.c }))
-        : [],
+      slots, boxes,
       holes: Array.isArray(obj.holes) ? obj.holes.map((h: Pos) => ({ r: h.r, c: h.c })) : [],
       solids: Array.isArray(obj.solids) ? obj.solids.map((s: Pos) => ({ r: s.r, c: s.c })) : [],
       updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
@@ -127,8 +128,6 @@ export const Levels = (() => {
     return validate(level).ok ? level : null;
   }
 
-  // Import one level or an array of levels from JSON text. Always assigns
-  // fresh ids so imports never clobber existing levels. Returns a summary.
   function importJSON(text: string): ImportResult {
     let parsed: any;
     try { parsed = JSON.parse(text); } catch (e) { return { added: 0, skipped: 0, error: "Invalid JSON." }; }
@@ -172,16 +171,9 @@ export const Levels = (() => {
   function isInt(v: any, lo: number, hi: number): boolean { return Number.isInteger(v) && v >= lo && v <= hi; }
   function err(msg: string): ValidateResult { return { ok: false, error: msg }; }
 
-  /* ---------- Durable storage: bind a real file (File System Access API) ----
-   * localStorage stays the fast in-session cache; a user-chosen JSON file is the
-   * durable backing that survives clearing the browser, a new session, or even
-   * another browser. We remember the file handle in IndexedDB so it can be
-   * reconnected next time (browsers re-prompt for permission with one click).
-   * Browsers without the API (Firefox/Safari) use Export/Import instead.
-   */
   const fsSupported = typeof window !== "undefined" && "showSaveFilePicker" in window;
   const HANDLE_DB = "sortingSquares.fs", HANDLE_STORE = "handles", HANDLE_KEY = "library";
-  let boundHandle: any = null; // a FileSystemFileHandle once linked
+  let boundHandle: any = null; // FileSystemFileHandle once linked
 
   function idbOpen(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -207,7 +199,7 @@ export const Levels = (() => {
         const r = db.transaction(HANDLE_STORE, "readwrite").objectStore(HANDLE_STORE).put(h, HANDLE_KEY);
         r.onsuccess = () => res(); r.onerror = () => rej(r.error);
       });
-    } catch (e) { /* ignore — handle just won't be remembered */ }
+    } catch (e) {}
   }
 
   async function hasPermission(mode: "read" | "readwrite", request: boolean): Promise<boolean> {
@@ -220,7 +212,6 @@ export const Levels = (() => {
     } catch (e) { return false; }
   }
 
-  // Replace the whole library with normalized levels from JSON text (keeps ids).
   function loadFromText(text: string): number {
     let parsed: any;
     try { parsed = JSON.parse(text); } catch (e) { return 0; }
@@ -234,8 +225,6 @@ export const Levels = (() => {
     return out.length;
   }
 
-  // Write the current library to the bound file. Returns false if no file is
-  // linked or permission was refused.
   async function writeFile(request = false): Promise<boolean> {
     if (!boundHandle || !(await hasPermission("readwrite", request))) return false;
     const w = await boundHandle.createWritable();
@@ -244,7 +233,6 @@ export const Levels = (() => {
     return true;
   }
 
-  // "Save to file" — pick a brand-new file and write the current library into it.
   async function bindNew(): Promise<string | null> {
     if (!fsSupported) return null;
     const handle = await window.showSaveFilePicker!({
@@ -257,7 +245,6 @@ export const Levels = (() => {
     return handle.name;
   }
 
-  // "Open file" — pick an existing file, load it into the library, and bind it.
   async function openFile(): Promise<{ name: string; loaded: number } | null> {
     if (!fsSupported) return null;
     const [handle] = await window.showOpenFilePicker!({
@@ -270,9 +257,6 @@ export const Levels = (() => {
     return { name: handle.name, loaded };
   }
 
-  // Startup: re-attach the remembered handle. If the browser still grants read
-  // access silently, pull its contents; otherwise report ready:false so the UI
-  // can offer a one-click reconnect (permission prompts need a user gesture).
   async function reconnect(): Promise<{ name: string; ready: boolean } | null> {
     if (!fsSupported) return null;
     const h = await handleGet();
@@ -280,11 +264,10 @@ export const Levels = (() => {
     boundHandle = h;
     let ready = false;
     try { ready = (await h.queryPermission({ mode: "read" })) === "granted"; } catch (e) { ready = false; }
-    if (ready) { try { loadFromText(await (await h.getFile()).text()); } catch (e) { /* keep cache */ } }
+    if (ready) { try { loadFromText(await (await h.getFile()).text()); } catch (e) {} }
     return { name: h.name, ready };
   }
 
-  // Ask for permission (needs a user gesture) and pull the bound file's contents.
   async function pull(): Promise<{ name: string; loaded: number } | null> {
     if (!boundHandle || !(await hasPermission("read", true))) return null;
     const loaded = loadFromText(await (await boundHandle.getFile()).text());

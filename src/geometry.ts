@@ -1,14 +1,3 @@
-/* Tiling geometry for Sorting Squares.
- *
- * Exposes a global `Geometry.make(shape, rows, cols)` returning a tiling object
- * that the game/editor use without knowing the shape. Each tiling provides, per
- * cell (keyed "r,c"): pixel centre, polygon corners, the incircle radius (for
- * sizing boxes), and an ordered list of `sides` edges. Edge `i` runs from
- * corner[i] to corner[(i+1)%sides] and faces neighbour `neighborAt(r,c,i)`
- * (or null at the border). A slot's wall is simply one edge index, so the wall
- * bar and the impassable edge are the same thing for every shape.
- */
-
 interface Pt { x: number; y: number; }
 type Shape = "square" | "pentagon" | "hexagon";
 
@@ -20,9 +9,9 @@ export interface Cell {
   cy: number;
   corners: Pt[];
   rIn: number;
-  edgeNeighbor?: (string | null)[]; // pentagon: precomputed per-edge neighbour
-  _wallLine?: SVGLineElement | null; // editor scratch
-  _boxEl?: HTMLElement | null;       // editor scratch
+  edgeNeighbor?: (string | null)[];
+  _wallLine?: SVGLineElement | null;
+  _boxEl?: HTMLElement | null;
 }
 
 interface NeighborRef { key: string; ei: number; }
@@ -50,9 +39,9 @@ export interface Tiling extends TilingBase {
 }
 
 export const Geometry = (() => {
-  const SQUARE = 50;   // square side, px
-  const HEXR = 30;     // hexagon circumradius, px
-  const PAD = 6;       // outer padding so edge walls aren't clipped
+  const SQUARE = 50;
+  const HEXR = 30;
+  const PAD = 6;
 
   function makeCell(r: number, c: number, cx: number, cy: number, corners: Pt[], rIn: number): Cell {
     return { key: r + "," + c, r, c, cx, cy, corners, rIn };
@@ -65,15 +54,14 @@ export const Geometry = (() => {
       for (let c = 0; c < cols; c++) {
         const cx = PAD + c * S + h, cy = PAD + r * S + h;
         const corners: Pt[] = [
-          { x: cx - h, y: cy - h }, // 0 top-left
-          { x: cx + h, y: cy - h }, // 1 top-right   -> edge0 = top
-          { x: cx + h, y: cy + h }, // 2 bottom-right -> edge1 = right
-          { x: cx - h, y: cy + h }, // 3 bottom-left  -> edge2 = bottom, edge3 = left
+          { x: cx - h, y: cy - h },
+          { x: cx + h, y: cy - h },
+          { x: cx + h, y: cy + h },
+          { x: cx - h, y: cy + h },
         ];
         cells.set(r + "," + c, makeCell(r, c, cx, cy, corners, h));
       }
-    // edge order: top, right, bottom, left  → [dcol, drow]
-    const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // edges: top, right, bottom, left
     const neighborAt: NeighborAt = (r, c, ei) => {
       const [dc, dr] = dirs[ei];
       const k = (r + dr) + "," + (c + dc);
@@ -94,13 +82,12 @@ export const Geometry = (() => {
         const cy = PAD + 1.5 * R * r + R;
         const corners: Pt[] = [];
         for (let i = 0; i < 6; i++) {
-          const a = (Math.PI / 180) * (60 * i - 30); // edge i faces angle 60*i
+          const a = (Math.PI / 180) * (60 * i - 30);
           corners.push({ x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
         }
         cells.set(r + "," + c, makeCell(r, c, cx, cy, corners, R * Math.sqrt(3) / 2));
       }
-    // edge order E, SE, SW, W, NW, NE → [dcol, drow], depends on row parity
-    const even = [[1, 0], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]];
+    const even = [[1, 0], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]]; // edges E, SE, SW, W, NW, NE
     const odd  = [[1, 0], [1, 1], [0, 1],  [-1, 0], [0, -1],  [1, -1]];
     const neighborAt: NeighborAt = (r, c, ei) => {
       const [dc, dr] = (r & 1) ? odd[ei] : even[ei];
@@ -114,24 +101,20 @@ export const Geometry = (() => {
     });
   }
 
-  // True Cairo pentagonal tiling. The pentagon has angles 120,120,90,120,90
-  // and sides [√3−1,1,1,1,1]; it tiles edge-to-edge in a 4-orientation
-  // basketweave. UNIT below is one translational unit cell (4 pentagons, one
-  // per orientation), already rotated 45° so the lattice is axis-aligned with
-  // period √6. Each unit cell maps to a 2×2 logical block, so the board is a
-  // full rows×cols rectangle (both rounded up to even). Adjacency is derived
-  // from shared edges. (Coordinates precomputed/verified offline.)
+  // Cairo pentagonal tiling: one translational unit cell (4 pentagons, one per
+  // orientation), rotated 45° to axis-align the lattice (period √6). Coordinates
+  // precomputed and verified offline.
   const PENT_UNIT: number[][][] = [
     [[-0.69695318,-0.17931509],[-0.17931509,-0.69695318],[0.78661073,-0.43813414],[0.52779169,0.52779169],[-0.43813414,0.78661073]],
     [[0.52779169,-1.92169806],[1.04542978,-1.40405997],[0.78661073,-0.43813414],[-0.17931509,-0.69695318],[-0.43813414,-1.66287901]],
     [[1.04542978,-1.40405997],[0.52779169,-1.92169806],[0.78661073,-2.88762388],[1.75253656,-2.62880484],[2.0113556,-1.66287901]],
     [[2.27017465,-0.69695318],[1.75253656,-0.17931509],[0.78661073,-0.43813414],[1.04542978,-1.40405997],[2.0113556,-1.66287901]],
   ];
-  const PENT_L = Math.sqrt(6); // axis-aligned lattice period (in unit coords)
+  const PENT_L = Math.sqrt(6);
 
   function buildPentagon(reqRows: number, reqCols: number): Tiling {
-    const SCALE = 26;
-    const KMAP = [[0, 0], [0, 1], [1, 0], [1, 1]]; // unit-cell pentagon -> (dr,dc)
+    const SCALE = 36;
+    const KMAP = [[0, 0], [0, 1], [1, 0], [1, 1]];
 
     const P = Math.ceil(reqRows / 2), Q = Math.ceil(reqCols / 2);
     const rows = 2 * P, cols = 2 * Q;
@@ -145,7 +128,6 @@ export const Geometry = (() => {
           raw.push(makeCell(2 * pr + dr, 2 * pc + dc, 0, 0, corners, 0));
         }
       }
-    // shift so the top-left of the patch sits at PAD
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
     for (const cell of raw) for (const p of cell.corners) {
       minx = Math.min(minx, p.x); miny = Math.min(miny, p.y);
@@ -168,7 +150,6 @@ export const Geometry = (() => {
       cell.rIn = rin;
       cells.set(cell.key, cell);
     }
-    // adjacency from shared edges
     const RD = 1e3, ck = (p: Pt) => Math.round(p.x * RD) / RD + "," + Math.round(p.y * RD) / RD;
     const ek = (a: Pt, b: Pt) => { const x = ck(a), y = ck(b); return x < y ? x + "|" + y : y + "|" + x; };
     const emap = new Map<string, Array<[string, number]>>();
@@ -197,7 +178,6 @@ export const Geometry = (() => {
     t.cellList = [...t.cells.values()];
     t.has = (k) => t.cells.has(k);
     t.get = (k) => t.cells.get(k);
-    // Box size that fits comfortably inside any cell of this tiling.
     t.boxSize = Math.round(2 * t.cellList[0].rIn * 0.74);
 
     t.neighbors = (k) => {
@@ -213,20 +193,19 @@ export const Geometry = (() => {
       const cell = t.cells.get(k)!;
       return t.neighborAt(cell.r, cell.c, ei);
     };
-    // Edge indices that still leave the cell reachable if used as a wall.
     t.validWalls = (k) => {
       const cell = t.cells.get(k)!;
       const neigh: number[] = [];
       for (let ei = 0; ei < t.sides; ei++)
         if (t.neighborAt(cell.r, cell.c, ei) != null) neigh.push(ei);
-      if (neigh.length >= 2) return neigh;            // wall a real edge, ≥1 stays open
-      if (neigh.length === 1) {                        // only one way in: wall a border edge
+      if (neigh.length >= 2) return neigh;
+      if (neigh.length === 1) {
         const border: number[] = [];
         for (let ei = 0; ei < t.sides; ei++)
           if (t.neighborAt(cell.r, cell.c, ei) == null) border.push(ei);
         return border.length ? border : neigh;
       }
-      return [];                                       // isolated (shouldn't happen)
+      return [];
     };
     return t;
   }

@@ -1,16 +1,14 @@
-// Minimal zero-dependency static file server for local development.
-//
-// ES modules need a real origin (they don't load over file://), so serve the
-// project over http://localhost. Run `npm run dev` (build + serve) or, for live
-// recompiles, `npm run watch` in one terminal and `npm run serve` in another.
+// Zero-dependency static server for local dev (ES modules don't load over file://).
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL(".", import.meta.url));
-const port = Number(process.env.PORT) || 8000;
+// Repo root by default; pass a dir to preview a build, e.g. `node serve.mjs dist`.
+// resolve() strips any trailing slash so the path guard below matches correctly.
+const root = resolve(process.argv[2] || fileURLToPath(new URL(".", import.meta.url)));
+const port = Number(process.env.PORT) || 8139;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -24,11 +22,10 @@ const MIME = {
 };
 
 const server = createServer(async (req, res) => {
-  // Strip query/hash, default to index.html, and keep the path inside root.
   let pathname = decodeURIComponent((req.url || "/").split("?")[0].split("#")[0]);
   if (pathname === "/") pathname = "/index.html";
   const filePath = normalize(join(root, pathname));
-  if (!filePath.startsWith(root)) { res.writeHead(403).end("Forbidden"); return; }
+  if (filePath !== root && !filePath.startsWith(root + sep)) { res.writeHead(403).end("Forbidden"); return; }
 
   try {
     const body = await readFile(filePath);

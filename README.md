@@ -41,24 +41,36 @@ local server:
 
 ```sh
 npm install
-npm run dev        # compile once (tsc) + start http://localhost:8000
+npm run dev        # compile once (tsc) + start http://localhost:8139
 ```
 
-- Open **http://localhost:8000/** to play, **/level-editor.html** to edit.
+- Open **http://localhost:8139/** to play, **/level-editor.html** to edit.
 - For live recompiles: `npm run watch` (tsc in watch mode) in one terminal and
-  `npm run serve` in another, then refresh the browser.
-- `npm run build` compiles `src/*.ts` → `js/*.js`; `npm run typecheck`
-  type-checks without emitting.
+  `npm run serve` in another, then refresh the browser. (Dev serves the
+  unstamped source from the repo root — the local cache doesn't matter there.)
+- `npm run build` compiles `src/*.ts` → `js/*.js`, then `stamp.mjs` writes the
+  deployable, cache-busted `dist/`. `npm run preview` builds and serves `dist/`
+  so you can check the production output. `npm run typecheck` type-checks only.
 
 The compiler emits **ES modules** (`tsconfig.json`: `module: ESNext`); each page
 loads a single entry module (`index.html` → `js/game.js`, `level-editor.html` →
 `js/editor.js`) that imports the rest. Import specifiers use explicit `.js`
 extensions so the browser resolves them natively — no bundler.
 
+### Cache-busting (`stamp.mjs`)
+
+GitHub Pages caches assets for ~10 minutes, so a deploy could otherwise leave a
+returning visitor with *new HTML loading old JS* — which crashes. To prevent
+that, the build appends one shared `?v=<hash>` (derived from the compiled JS +
+CSS) to every asset URL: the entry `<script>`, the `import` specifiers inside
+each module, and the stylesheet link. When any asset changes the hash changes,
+so the browser always fetches a fresh, **consistent** set — old and new files
+can never mix. Source files stay unstamped; only `dist/` is versioned.
+
 ## Deploy
 
-Pushing to `main` triggers `.github/workflows/deploy-pages.yml`, which compiles
-and publishes the pages to GitHub Pages at
+Pushing to `main` triggers `.github/workflows/deploy-pages.yml`, which runs
+`npm run build` and publishes the cache-busted **`dist/`** to GitHub Pages at
 <https://segmentree.github.io/sorting-squares/>. Hosting at one stable URL is
 what lets players keep their saved levels across every deploy (see *Durable
 level storage* above).
@@ -75,7 +87,8 @@ level storage* above).
 | `src/nav.ts` | Navigation helper between the play and editor pages |
 | `src/globals.d.ts` | Ambient types (File System Access API) |
 | `style.css` | Styles |
-| `serve.mjs` | Zero-dependency local static server (`npm run serve`) |
-| `.github/workflows/deploy-pages.yml` | Build + deploy to GitHub Pages on push to `main` |
+| `serve.mjs` | Zero-dependency local static server (`npm run serve`, or `… dist` to preview) |
+| `stamp.mjs` | Post-`tsc` step: writes the cache-busted `dist/` for deploy |
+| `.github/workflows/deploy-pages.yml` | Build + deploy `dist/` to GitHub Pages on push to `main` |
 | `tsconfig.json` | TypeScript config (ES modules) |
-| `js/` | Compiled output (git-ignored) |
+| `js/`, `dist/` | Build outputs (git-ignored) |
