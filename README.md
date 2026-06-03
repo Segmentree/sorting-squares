@@ -13,10 +13,25 @@ Pure HTML/CSS/JS — no dependencies, no backend.
   hexagon (6). The grid, pathfinding, and walls all work on a shared tiling
   abstraction.
 - **Pathfinding with animation** — boxes trace a valid route cell-to-cell.
-- **Level editor** — design levels (place boxes/slots, rotate each slot's wall),
-  save them, and export/import as JSON.
-- **Random games** — configurable grid size, shape, box and slot counts.
-- Settings and saved levels persist in `localStorage`.
+- **Box & obstacle types** — green boxes must reach slots and route around other
+  boxes. **Red boxes** roam free: they slip through other boxes *and* slot walls,
+  never need a slot (not part of the win), and act as movable obstacles — only
+  holes and solids stop them. **Solid blocks** are visible cells nothing can pass;
+  **holes** are invisible ones that also block movement.
+- **Level editor** — design levels (place green/red boxes, slots, solids, holes;
+  rotate each slot's wall), save them, and export/import as JSON.
+- **Random games** — configurable grid size, shape, green/red box, slot and
+  solid-block counts.
+- **Durable level storage** — `localStorage` is the in-session cache (and now
+  persists across rebuilds because the build writes a **stable** filename,
+  `dist/sorting-squares.html`, rather than a per-build timestamped one). For a
+  copy that survives clearing the browser or switching browsers, the editor can
+  bind your library to a real JSON file (**Save to file… / Open levels file…**)
+  via the File System Access API; the handle is remembered in IndexedDB so a new
+  session reconnects with one click and edits autosave to the file. Available in
+  Chromium browsers (works in both the standalone pages and the single-file
+  build, since the bundle's `srcdoc` iframe is same-origin); other browsers fall
+  back to Export / Import. Settings also persist in `localStorage`.
 
 ## Run it
 

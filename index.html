@@ -44,8 +44,16 @@
       <input type="number" id="cfg-boxes" min="0" max="256" />
     </label>
     <label class="field">
+      <span>Red boxes (pass through boxes)</span>
+      <input type="number" id="cfg-reds" min="0" max="256" />
+    </label>
+    <label class="field">
       <span>Yellow cells</span>
       <input type="number" id="cfg-slots" min="0" max="256" />
+    </label>
+    <label class="field">
+      <span>Solid blocks</span>
+      <input type="number" id="cfg-solids" min="0" max="256" />
     </label>
     <button id="applyCfg" class="apply">Apply &amp; New Game</button>
     <p class="cfg-hint" id="cfg-hint"></p>
@@ -59,6 +67,8 @@
         Get every <span class="legend box">green box</span> onto a
         <span class="legend slot">yellow slot</span>.
         Slots can only be entered from the front or sides — never through the dark wall.
+        <span class="legend red">Red boxes</span> roam free — they slip through boxes
+        and walls and never need a slot; <span class="legend solid">solid blocks</span> stop everything.
       </p>
     </header>
 
