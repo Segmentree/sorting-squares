@@ -454,6 +454,7 @@ import { renderGrid } from "./board.js";
   buildGrid();
   refreshList();
   initDurableFile();
+  Levels.cloud.pull().then(() => refreshList()).catch(() => {});
 
   const editId = routeParams().get("edit");
   if (editId) {

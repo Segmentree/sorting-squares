@@ -1,0 +1,4 @@
+[build]
+  command = "echo 'API only — the game is hosted on GitHub Pages'"
+  publish = "netlify/site"
+  functions = "netlify/functions"
