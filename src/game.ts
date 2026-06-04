@@ -618,4 +618,24 @@ import type { Box, Slot, RC, Spec } from "./elements.js";
       if (st && st.ready) populatePicker();
     }).catch(() => {});
   }
+
+  const cloudCode = document.getElementById("cloud-code") as HTMLInputElement;
+  const cloudLink = document.getElementById("cloud-link") as HTMLInputElement;
+  const cloudStatus = document.getElementById("cloud-status")!;
+  cloudCode.value = Levels.cloud.key();
+
+  document.getElementById("cloud-copy")!.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(Levels.cloud.key()); cloudStatus.textContent = "Sync code copied."; }
+    catch (e) { cloudCode.select(); cloudStatus.textContent = "Press Cmd/Ctrl+C to copy."; }
+  });
+  document.getElementById("cloud-linkbtn")!.addEventListener("click", async () => {
+    if (!Levels.cloud.setKey(cloudLink.value)) { cloudStatus.textContent = "That doesn't look like a valid sync code."; return; }
+    cloudLink.value = "";
+    cloudCode.value = Levels.cloud.key();
+    cloudStatus.textContent = "Linked — loading your cloud levels…";
+    try { await Levels.cloud.pull(); populatePicker(); cloudStatus.textContent = "Linked and synced."; }
+    catch (e) { cloudStatus.textContent = "Linked, but couldn't reach the cloud right now."; }
+  });
+
+  Levels.cloud.pull().then(() => populatePicker()).catch(() => {});
 })();

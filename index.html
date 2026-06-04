@@ -22,6 +22,25 @@
       <a class="link-btn" id="edit-link" href="level-editor.html" title="Open level editor">✎ Edit</a>
     </div>
 
+    <div class="sidebar-section" id="cloud-section">
+      <h3>Cloud sync</h3>
+      <p class="cloud-hint" id="cloud-status">Your saved levels back up to the cloud automatically.</p>
+      <label class="field">
+        <span>Your sync code (use it on another device)</span>
+        <div class="cloud-row">
+          <input type="text" id="cloud-code" readonly />
+          <button id="cloud-copy" class="ghost">Copy</button>
+        </div>
+      </label>
+      <label class="field">
+        <span>Link another device</span>
+        <div class="cloud-row">
+          <input type="text" id="cloud-link" placeholder="Paste a sync code" />
+          <button id="cloud-linkbtn" class="ghost">Link</button>
+        </div>
+      </label>
+    </div>
+
     <div class="sidebar-section">
     <h3>Random game</h3>
     <label class="field">
